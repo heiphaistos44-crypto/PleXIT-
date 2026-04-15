@@ -134,88 +134,72 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ message: "Le pseudo Discord est requis" }, { status: 400 });
   }
 
-  const priorite = body.priorite || "moyenne";
+  const priorite  = body.priorite || "moyenne";
   const typeLabel = TYPE_LABELS[body.type] || body.type;
-  const isSeries = ["serie", "anime", "dessin_anime"].includes(body.type);
+  const isSeries  = ["serie", "anime", "dessin_anime"].includes(body.type);
   const hasQuality = body.type !== "musique";
 
-  const fields: { name: string; value: string; inline?: boolean }[] = [];
+  // ── Génère l'ID immédiatement (utilisé dans le footer Discord) ──
+  const requestId = crypto.randomUUID();
+  const shortId   = requestId.split("-")[0].toUpperCase();
 
-  // Type
-  fields.push({ name: "📋 Type", value: typeLabel, inline: true });
+  // ── Description richement formatée ────────────────────────────
+  const descLines: string[] = [];
 
-  // Année
-  fields.push({ name: "📅 Année", value: body.annee || "Non précisée", inline: true });
+  // Type + priorité
+  descLines.push(
+    `**${typeLabel}** · Priorité **${priorite.charAt(0).toUpperCase() + priorite.slice(1)}** ${PRIORITE_EMOJIS[priorite]}`
+  );
 
-  // Genres
-  if (body.genres && body.genres.length > 0) {
-    fields.push({ name: "🎭 Genres", value: body.genres.join(", "), inline: true });
-  }
+  // Année + genres
+  const metaParts: string[] = [];
+  if (body.annee)                        metaParts.push(`📅 ${body.annee}`);
+  if (body.genres && body.genres.length) metaParts.push(`🎭 ${body.genres.join(", ")}`);
+  if (metaParts.length)                  descLines.push(metaParts.join("  ·  "));
 
-  // Langue + Qualité (pas pour musique)
+  // Langue + qualité
   if (hasQuality) {
-    fields.push({
-      name: "🌐 Langue",
-      value: LANGUE_LABELS[body.langue || ""] || body.langue || "Non précisée",
-      inline: true,
-    });
-    fields.push({
-      name: "🎞️ Qualité",
-      value: QUALITE_LABELS[body.qualite || ""] || body.qualite || "Non précisée",
-      inline: true,
-    });
+    const langLabel = LANGUE_LABELS[body.langue  || ""] || body.langue  || "Non précisée";
+    const qualLabel = QUALITE_LABELS[body.qualite || ""] || body.qualite || "Non précisée";
+    descLines.push(`🌐 ${langLabel}  ·  🎞️ ${qualLabel}`);
   }
 
-  // Saisons / épisodes (séries, animés, dessins animés)
+  // Saisons / épisodes
   if (isSeries) {
-    if (body.saisons) {
-      fields.push({ name: "🗂️ Saisons", value: body.saisons, inline: true });
-    }
-    if (body.episodes) {
-      fields.push({ name: "📝 Épisodes", value: body.episodes, inline: true });
-    }
-    if (body.enCours) {
-      fields.push({ name: "📡 Diffusion", value: "Encore en cours", inline: true });
-    }
+    const seriesParts: string[] = [];
+    if (body.saisons)  seriesParts.push(`🗂️ Saisons : ${body.saisons}`);
+    if (body.episodes) seriesParts.push(`📝 Épisodes : ${body.episodes}`);
+    if (body.enCours)  seriesParts.push("📡 En cours de diffusion");
+    if (seriesParts.length) descLines.push(seriesParts.join("  ·  "));
   }
+
+  // Vérifié sur Plex
+  descLines.push(
+    `\n✅ Vérifié sur Plex : **${body.verifieExistant ? "Oui — non disponible" : "Non vérifié"}**`
+  );
 
   // Lien externe
   if (body.lienType && body.lienUrl) {
-    const sourceName = LIEN_LABELS[body.lienType] || body.lienType;
-    fields.push({
-      name: `🔗 ${sourceName}`,
-      value: `[Voir la fiche sur ${sourceName}](${body.lienUrl})`,
-      inline: false,
-    });
+    const src = LIEN_LABELS[body.lienType] || body.lienType;
+    descLines.push(`🔗 [Voir la fiche sur ${src}](${body.lienUrl})`);
   }
 
   // Commentaire
   if (body.commentaire) {
-    fields.push({
-      name: "💬 Commentaire",
-      value: body.commentaire.substring(0, 1024),
-      inline: false,
-    });
+    descLines.push(`\n💬 *${body.commentaire.substring(0, 300)}*`);
   }
 
-  // Vérifié sur Plex
-  fields.push({
-    name: "✅ Vérifié sur Plex",
-    value: body.verifieExistant ? "Oui — non disponible" : "Non vérifié",
-    inline: true,
-  });
+  const description = descLines.join("\n");
 
+  // ── Embed Discord ──────────────────────────────────────────────
   const embed = {
     title: `${PRIORITE_EMOJIS[priorite]} ${body.titre}${body.annee ? ` (${body.annee})` : ""}`,
+    description,
     color: TYPE_COLORS[body.type] ?? PRIORITE_COLORS[priorite],
-    fields,
     footer: {
-      text: `Demandé par ${body.pseudoDiscord} • PleXIT`,
+      text: `Demandé par ${body.pseudoDiscord} · PleXIT · Réf. #${shortId}`,
     },
     timestamp: new Date().toISOString(),
-    author: {
-      name: `${typeLabel} — Priorité ${priorite.charAt(0).toUpperCase() + priorite.slice(1)}`,
-    },
   };
 
   try {
@@ -237,7 +221,7 @@ export async function POST(req: NextRequest) {
 
     // ── Sauvegarde dans l'historique local ──────────────────────
     const stored: StoredRequest = {
-      id:          crypto.randomUUID(),
+      id:          requestId,
       type:        body.type,
       titre:       body.titre.trim(),
       annee:       body.annee,

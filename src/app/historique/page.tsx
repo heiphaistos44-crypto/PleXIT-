@@ -92,7 +92,10 @@ function RequestCard({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ status: newStatus }),
       });
-      if (res.ok) onStatusChange(req.id, newStatus);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      onStatusChange(req.id, newStatus);
+    } catch (err) {
+      console.error("Erreur mise à jour statut:", err);
     } finally {
       setUpdatingStatus(null);
     }
@@ -100,9 +103,14 @@ function RequestCard({
 
   const handleDelete = async () => {
     if (!confirmDel) { setConfirmDel(true); return; }
-    const res = await fetch(`/api/historique/${req.id}`, { method: "DELETE" });
-    if (res.ok) onDelete(req.id);
-    setConfirmDel(false);
+    try {
+      const res = await fetch(`/api/historique/${req.id}`, { method: "DELETE" });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      onDelete(req.id);
+    } catch (err) {
+      console.error("Erreur suppression:", err);
+      setConfirmDel(false);
+    }
   };
 
   const dateReq = new Date(req.requestedAt).toLocaleDateString("fr-FR", { day: "2-digit", month: "short", year: "numeric" });
@@ -262,10 +270,12 @@ export default function HistoriquePage() {
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const res  = await fetch("/api/historique", { cache: "no-store" });
+      const res = await fetch("/api/historique", { cache: "no-store" });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       setRequests(data.requests ?? []);
-    } catch {
+    } catch (err) {
+      console.error("Erreur chargement historique:", err);
       setRequests([]);
     } finally {
       setLoading(false);
