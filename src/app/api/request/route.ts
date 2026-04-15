@@ -1,4 +1,44 @@
 import { NextRequest, NextResponse } from "next/server";
+import { promises as fs } from "fs";
+import path from "path";
+import crypto from "crypto";
+
+// ─── Helpers fichier JSON ──────────────────────────────────────
+const DATA_PATH = path.join(process.cwd(), "data", "requests.json");
+
+export interface StoredRequest {
+  id:          string;
+  type:        string;
+  titre:       string;
+  annee?:      string;
+  genres?:     string[];
+  langue?:     string;
+  qualite?:    string;
+  saisons?:    string;
+  pseudo:      string;
+  lienType?:   string;
+  lienUrl?:    string;
+  commentaire?: string;
+  priorite:    string;
+  requestedAt: string; // ISO
+  status:      "pending" | "added" | "rejected";
+  addedAt?:    string; // ISO, si status === "added"
+  note?:       string; // note de l'admin
+}
+
+async function readRequests(): Promise<StoredRequest[]> {
+  try {
+    const raw = await fs.readFile(DATA_PATH, "utf-8");
+    return JSON.parse(raw) as StoredRequest[];
+  } catch {
+    return [];
+  }
+}
+
+async function writeRequests(list: StoredRequest[]): Promise<void> {
+  await fs.mkdir(path.dirname(DATA_PATH), { recursive: true });
+  await fs.writeFile(DATA_PATH, JSON.stringify(list, null, 2), "utf-8");
+}
 
 interface RequestBody {
   type: "film" | "serie" | "anime" | "dessin_anime" | "musique";
@@ -195,7 +235,34 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ message: "Erreur d'envoi vers Discord" }, { status: 502 });
     }
 
-    return NextResponse.json({ success: true, message: "Demande envoyée avec succès" });
+    // ── Sauvegarde dans l'historique local ──────────────────────
+    const stored: StoredRequest = {
+      id:          crypto.randomUUID(),
+      type:        body.type,
+      titre:       body.titre.trim(),
+      annee:       body.annee,
+      genres:      body.genres,
+      langue:      body.langue,
+      qualite:     body.qualite,
+      saisons:     body.saisons,
+      pseudo:      body.pseudoDiscord.trim(),
+      lienType:    body.lienType || undefined,
+      lienUrl:     body.lienUrl || undefined,
+      commentaire: body.commentaire || undefined,
+      priorite:    priorite,
+      requestedAt: new Date().toISOString(),
+      status:      "pending",
+    };
+    try {
+      const list = await readRequests();
+      list.unshift(stored); // plus récent en premier
+      await writeRequests(list);
+    } catch (saveErr) {
+      // Ne pas bloquer la réponse si la sauvegarde échoue
+      console.error("Historique save error:", saveErr);
+    }
+
+    return NextResponse.json({ success: true, message: "Demande envoyée avec succès", id: stored.id });
   } catch (err) {
     console.error("Fetch error:", err);
     return NextResponse.json({ message: "Impossible de contacter Discord" }, { status: 503 });

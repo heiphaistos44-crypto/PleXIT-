@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Film, Library, Home, ExternalLink } from "lucide-react";
+import { Film, Library, Home, ExternalLink, BarChart3, ClipboardList } from "lucide-react";
 
 export default function Navbar() {
   const pathname = usePathname();
@@ -54,6 +54,8 @@ export default function Navbar() {
           <NavItem href="/" icon={<Home size={15} />} label="Accueil" active={pathname === "/"} />
           <NavItem href="/demande" icon={<Film size={15} />} label="Demande" active={pathname === "/demande"} />
           <NavItem href="/bibliotheque" icon={<Library size={15} />} label="Bibliothèque" active={pathname === "/bibliotheque"} />
+          <NavItem href="/historique" icon={<ClipboardList size={15} />} label="Historique" active={pathname === "/historique"} />
+          <NavItem href="/forum" icon={<BarChart3 size={15} />} label="Forum" active={pathname === "/forum"} />
         </div>
 
         {/* Right side — Plex quick access */}

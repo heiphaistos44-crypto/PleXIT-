@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, Suspense } from "react";
+import { useSearchParams } from "next/navigation";
 import {
   Film, Tv, Search, RefreshCw, Star,
   AlertCircle, Library, ChevronRight, ChevronLeft,
@@ -47,7 +48,9 @@ const CATEGORIES: { value: Category; label: string; icon: React.ReactNode; badge
   { value: "exclusive", label: "Exclusivités", icon: <span style={{ fontSize: 14 }}>💎</span>, badge: "badge-purple"  },
 ];
 
-export default function BibliothequeePage() {
+function BibliothequeInner() {
+  const searchParams = useSearchParams();
+
   const [items,      setItems]      = useState<PlexItem[]>([]);
   const [counts,     setCounts]     = useState({ all: 0, movie: 0, show: 0, anime: 0, music: 0, exclusive: 0 });
   const [total,      setTotal]      = useState(0);
@@ -56,7 +59,10 @@ export default function BibliothequeePage() {
   const [error,      setError]      = useState("");
 
   const [search,   setSearch]   = useState("");
-  const [category, setCategory] = useState<Category>("all");
+  const initCat = (searchParams.get("category") as Category) ?? "all";
+  const [category, setCategory] = useState<Category>(
+    ["all","movie","show","anime","music","exclusive"].includes(initCat) ? initCat : "all"
+  );
   const [sort,     setSort]     = useState<SortMode>("recent");
   const [page,     setPage]     = useState(1);
   const [showFilters, setShowFilters] = useState(false);
@@ -351,6 +357,14 @@ export default function BibliothequeePage() {
 
       {selected && <ItemModal item={selected} onClose={() => setSelected(null)} />}
     </div>
+  );
+}
+
+export default function BibliothequeePage() {
+  return (
+    <Suspense fallback={<div style={{ maxWidth: 1280, margin: "0 auto", padding: "40px 24px" }}><div className="skeleton" style={{ height: 400, borderRadius: 16 }} /></div>}>
+      <BibliothequeInner />
+    </Suspense>
   );
 }
 
