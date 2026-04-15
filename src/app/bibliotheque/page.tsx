@@ -12,7 +12,7 @@ interface PlexItem {
   title:         string;
   year:          number;
   type:          "movie" | "show";
-  category:      "movie" | "show" | "anime" | "music";
+  category:      "movie" | "show" | "anime" | "music" | "exclusive";
   sectionTitle:  string;
   thumb?:        string;
   rating?:       number;
@@ -29,26 +29,27 @@ interface ApiResponse {
   total:      number;
   page:       number;
   totalPages: number;
-  counts?:    { all: number; movie: number; show: number; anime: number; music: number };
+  counts?:    { all: number; movie: number; show: number; anime: number; music: number; exclusive: number };
   demo?:      boolean;
 }
 
-type Category = "all" | "movie" | "show" | "anime" | "music";
+type Category = "all" | "movie" | "show" | "anime" | "music" | "exclusive";
 type SortMode  = "recent" | "alpha" | "rating" | "year";
 
 const PAGE_SIZE = 48;
 
 const CATEGORIES: { value: Category; label: string; icon: React.ReactNode; badge: string }[] = [
-  { value: "all",   label: "Tout",   icon: <Library size={14} />, badge: "badge-gray" },
-  { value: "movie", label: "Films",  icon: <Film size={14} />,    badge: "badge-red"  },
-  { value: "show",  label: "Séries", icon: <Tv size={14} />,      badge: "badge-blue" },
-  { value: "anime", label: "Animé",  icon: <span style={{ fontSize: 14 }}>⛩️</span>, badge: "badge-gold" },
-  { value: "music", label: "Musique",icon: <Music size={14} />,   badge: "badge-green"},
+  { value: "all",       label: "Tout",         icon: <Library size={14} />,                     badge: "badge-gray"    },
+  { value: "movie",     label: "Films",        icon: <Film size={14} />,                        badge: "badge-red"     },
+  { value: "show",      label: "Séries",       icon: <Tv size={14} />,                          badge: "badge-blue"    },
+  { value: "anime",     label: "Animé",        icon: <span style={{ fontSize: 14 }}>⛩️</span>, badge: "badge-gold"    },
+  { value: "music",     label: "Musique",      icon: <Music size={14} />,                       badge: "badge-green"   },
+  { value: "exclusive", label: "Exclusivités", icon: <span style={{ fontSize: 14 }}>💎</span>, badge: "badge-purple"  },
 ];
 
 export default function BibliothequeePage() {
   const [items,      setItems]      = useState<PlexItem[]>([]);
-  const [counts,     setCounts]     = useState({ all: 0, movie: 0, show: 0, anime: 0, music: 0 });
+  const [counts,     setCounts]     = useState({ all: 0, movie: 0, show: 0, anime: 0, music: 0, exclusive: 0 });
   const [total,      setTotal]      = useState(0);
   const [totalPages, setTotalPages] = useState(1);
   const [loading,    setLoading]    = useState(true);
@@ -112,11 +113,12 @@ export default function BibliothequeePage() {
   };
 
   const categoryColor: Record<Category, string> = {
-    all:   "#9ca3af",
-    movie: "#ef4444",
-    show:  "#3b82f6",
-    anime: "#f59e0b",
-    music: "#22c55e",
+    all:       "#9ca3af",
+    movie:     "#ef4444",
+    show:      "#3b82f6",
+    anime:     "#f59e0b",
+    music:     "#22c55e",
+    exclusive: "#a855f7",
   };
 
   return (
@@ -137,12 +139,13 @@ export default function BibliothequeePage() {
                 <span className="badge badge-blue">{counts.show.toLocaleString("fr")} Séries</span>
                 {counts.anime > 0 && <span className="badge badge-gold">{counts.anime.toLocaleString("fr")} Animés</span>}
                 {counts.music > 0 && <span className="badge badge-green">{counts.music.toLocaleString("fr")} Musiques</span>}
+                {counts.exclusive > 0 && <span className="badge badge-purple">{counts.exclusive.toLocaleString("fr")} Exclus</span>}
               </div>
             )}
           </div>
           <div style={{ display: "flex", gap: 10 }}>
             <a
-              href={process.env.NEXT_PUBLIC_PLEX_URL || "http://localhost:32400/web"}
+              href={process.env.NEXT_PUBLIC_PLEX_URL || "https://watch.plex.tv/fr/me"}
               target="_blank" rel="noopener noreferrer"
               style={{
                 display: "flex", alignItems: "center", gap: 7,
@@ -365,10 +368,11 @@ function getPaginationRange(current: number, total: number): (number | "...")[] 
 // ── Badge couleur par catégorie ───────────────────────────────
 function CategoryBadge({ cat }: { cat: PlexItem["category"] }) {
   const map: Record<string, { label: string; cls: string }> = {
-    movie: { label: "Film",    cls: "badge-red"   },
-    show:  { label: "Série",   cls: "badge-blue"  },
-    anime: { label: "Animé",   cls: "badge-gold"  },
-    music: { label: "Musique", cls: "badge-green" },
+    movie:     { label: "Film",        cls: "badge-red"    },
+    show:      { label: "Série",       cls: "badge-blue"   },
+    anime:     { label: "Animé",       cls: "badge-gold"   },
+    music:     { label: "Musique",     cls: "badge-green"  },
+    exclusive: { label: "💎 Exclu",   cls: "badge-purple" },
   };
   const { label, cls } = map[cat] ?? { label: cat, cls: "badge-gray" };
   return <span className={`badge ${cls}`} style={{ fontSize: "0.6rem" }}>{label}</span>;

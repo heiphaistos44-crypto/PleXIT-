@@ -59,7 +59,7 @@ export default function Navbar() {
         {/* Right side — Plex quick access */}
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <a
-            href={process.env.NEXT_PUBLIC_DISCORD_INVITE || "https://discord.gg/WPjFythcH5"}
+            href={process.env.NEXT_PUBLIC_DISCORD_INVITE || "https://discord.gg/22B5u7R7g2"}
             target="_blank"
             rel="noopener noreferrer"
             style={{
@@ -83,7 +83,7 @@ export default function Navbar() {
             Discord
           </a>
           <a
-            href={process.env.NEXT_PUBLIC_PLEX_URL || "http://localhost:32400/web"}
+            href={process.env.NEXT_PUBLIC_PLEX_URL || "https://watch.plex.tv/fr/me"}
             target="_blank"
             rel="noopener noreferrer"
             style={{

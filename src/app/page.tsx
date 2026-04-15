@@ -11,6 +11,7 @@ import {
   Star,
   Clock,
 } from "lucide-react";
+import NowWatching from "@/components/NowWatching";
 
 export default function HomePage() {
   return (
@@ -60,6 +61,9 @@ export default function HomePage() {
 
       {/* ─── DIVIDER ─── */}
       <div className="divider-red" style={{ marginBottom: 60 }} />
+
+      {/* ─── NOW WATCHING ─── */}
+      <NowWatching />
 
       {/* ─── FEATURE CARDS ─── */}
       <section style={{ marginBottom: 70 }}>
@@ -146,7 +150,7 @@ export default function HomePage() {
 
         {/* Discord */}
         <a
-          href={process.env.NEXT_PUBLIC_DISCORD_INVITE || "https://discord.gg/WPjFythcH5"}
+          href={process.env.NEXT_PUBLIC_DISCORD_INVITE || "https://discord.gg/22B5u7R7g2"}
           target="_blank"
           rel="noopener noreferrer"
           style={{ textDecoration: "none" }}

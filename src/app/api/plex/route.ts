@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 // ─── Types ────────────────────────────────────────────────────
-type Category = "movie" | "show" | "anime" | "music";
+type Category = "movie" | "show" | "anime" | "music" | "exclusive";
 type SortMode  = "recent" | "alpha" | "rating" | "year";
 
 interface PlexSection {
@@ -60,6 +60,8 @@ function isCacheValid(): boolean {
 function detectCategory(sectionType: string, sectionTitle: string): Category {
   if (sectionType === "artist") return "music";
   const t = sectionTitle.toLowerCase();
+  // Exclusivités — sections avec "exclus", "exclu", "rare", "exclusif" dans le titre
+  if (t.includes("exclus") || t.includes("exclu") || t.includes("rare") || t.includes("exclusif")) return "exclusive";
   if (t.includes("animé") || t.includes("anime") || t.includes("manga")) return "anime";
   return sectionType === "movie" ? "movie" : "show";
 }
@@ -192,11 +194,12 @@ export async function GET(req: NextRequest) {
 
     // Compteurs par catégorie
     const counts = {
-      all:   all.length,
-      movie: all.filter(i => i.category === "movie").length,
-      show:  all.filter(i => i.category === "show").length,
-      anime: all.filter(i => i.category === "anime").length,
-      music: all.filter(i => i.category === "music").length,
+      all:       all.length,
+      movie:     all.filter(i => i.category === "movie").length,
+      show:      all.filter(i => i.category === "show").length,
+      anime:     all.filter(i => i.category === "anime").length,
+      music:     all.filter(i => i.category === "music").length,
+      exclusive: all.filter(i => i.category === "exclusive").length,
     };
 
     return NextResponse.json({
