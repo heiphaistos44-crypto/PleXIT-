@@ -201,7 +201,7 @@ export default function ForumPage() {
     { label: "Films",          value: counts.movie,     color: "#ef4444", icon: Film,        badge: "badge-red"    },
     { label: "Séries",         value: counts.show,      color: "#3b82f6", icon: Tv,          badge: "badge-blue"   },
     { label: "Animés",         value: counts.anime,     color: "#f59e0b", icon: Clapperboard, badge: "badge-gold"  },
-    { label: "Musique",        value: counts.music,     color: "#22c55e", icon: Music,       badge: "badge-green"  },
+    { label: "Artiste Musical", value: counts.music,     color: "#22c55e", icon: Music,       badge: "badge-green"  },
     { label: "Exclusivités",   value: counts.exclusive, color: "#a855f7", icon: Diamond,     badge: "badge-purple" },
   ];
 
@@ -328,7 +328,7 @@ export default function ForumPage() {
               const catItems = allItems.filter(i => i.category === cat);
               if (catItems.length === 0) return null;
               const color = CAT_COLOR[cat];
-              const labels: Record<string, string> = { movie: "Films", show: "Séries", anime: "Animés", music: "Musique" };
+              const labels: Record<string, string> = { movie: "Films", show: "Séries", anime: "Animés", music: "Artistes Musicaux" };
               const icons: Record<string, React.ReactNode> = {
                 movie: <Film size={16} color={color} />, show: <Tv size={16} color={color} />,
                 anime: <span style={{ fontSize: 16 }}>⛩️</span>, music: <Music size={16} color={color} />,
@@ -338,27 +338,57 @@ export default function ForumPage() {
                   padding: "20px", borderRadius: 16,
                   background: `${color}06`, border: `1px solid ${color}18`,
                 }}>
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                       {icons[cat]}
                       <span style={{ fontWeight: 800, fontSize: "0.9rem", color }}>{labels[cat]}</span>
                     </div>
                     <span style={{ fontSize: "0.75rem", fontWeight: 700, color: "#6b7280" }}>
-                      {counts[cat].toLocaleString("fr")} titres
+                      {counts[cat].toLocaleString("fr")} {cat === "music" ? "artistes" : "titres"}
                     </span>
                   </div>
+                  {/* Stat épisodes/saisons pour séries et animés */}
+                  {(cat === "show" || cat === "anime") && (() => {
+                    const totalEps = catItems.reduce((s, i) => s + (i.episodes ?? 0), 0);
+                    const totalSeas = catItems.reduce((s, i) => s + (i.seasons ?? 0), 0);
+                    return totalEps > 0 || totalSeas > 0 ? (
+                      <div style={{ display: "flex", gap: 12, marginBottom: 10 }}>
+                        {totalSeas > 0 && <span style={{ fontSize: "0.68rem", color: "#6b7280" }}>📁 {totalSeas.toLocaleString("fr")} saisons</span>}
+                        {totalEps > 0 && <span style={{ fontSize: "0.68rem", color: "#6b7280" }}>🎬 {totalEps.toLocaleString("fr")} épisodes</span>}
+                      </div>
+                    ) : null;
+                  })()}
+                  {/* Stat albums/tracks pour musique */}
+                  {cat === "music" && (() => {
+                    const totalAlbums = catItems.reduce((s, i) => s + (i.seasons ?? 0), 0);
+                    const totalTracks = catItems.reduce((s, i) => s + (i.episodes ?? 0), 0);
+                    return totalAlbums > 0 || totalTracks > 0 ? (
+                      <div style={{ display: "flex", gap: 12, marginBottom: 10 }}>
+                        {totalAlbums > 0 && <span style={{ fontSize: "0.68rem", color: "#6b7280" }}>💿 {totalAlbums.toLocaleString("fr")} albums</span>}
+                        {totalTracks > 0 && <span style={{ fontSize: "0.68rem", color: "#6b7280" }}>🎵 {totalTracks.toLocaleString("fr")} titres</span>}
+                      </div>
+                    ) : null;
+                  })()}
                   <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                     {catItems.slice(0, 5).map(item => (
                       <div key={item.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
                         <span style={{ fontSize: "0.8rem", color: "#d1d5db", flex: 1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                           {item.title}
                         </span>
-                        <span style={{ fontSize: "0.7rem", color: "#4b5563", flexShrink: 0 }}>{item.year || "—"}</span>
-                        {item.rating && (
-                          <span style={{ display: "flex", alignItems: "center", gap: 3, fontSize: "0.7rem", color: "#f59e0b", flexShrink: 0 }}>
-                            <Star size={9} fill="#f59e0b" /> {item.rating.toFixed(1)}
-                          </span>
-                        )}
+                        <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
+                          {item.episodes && (cat === "show" || cat === "anime") && (
+                            <span style={{ fontSize: "0.65rem", color: "#4b5563" }}>{item.episodes} ep.</span>
+                          )}
+                          {item.episodes && cat === "music" && (
+                            <span style={{ fontSize: "0.65rem", color: "#4b5563" }}>{item.episodes} titres</span>
+                          )}
+                          <span style={{ fontSize: "0.7rem", color: "#4b5563" }}>{item.year || "—"}</span>
+                          {item.rating && (
+                            <span style={{ display: "flex", alignItems: "center", gap: 3, fontSize: "0.7rem", color: "#f59e0b" }}>
+                              <Star size={9} fill="#f59e0b" /> {item.rating.toFixed(1)}
+                            </span>
+                          )}
+                        </div>
                       </div>
                     ))}
                     {catItems.length > 5 && (

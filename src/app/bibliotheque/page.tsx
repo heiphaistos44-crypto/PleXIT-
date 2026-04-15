@@ -44,7 +44,7 @@ const CATEGORIES: { value: Category; label: string; icon: React.ReactNode; badge
   { value: "movie",     label: "Films",        icon: <Film size={14} />,                        badge: "badge-red"     },
   { value: "show",      label: "Séries",       icon: <Tv size={14} />,                          badge: "badge-blue"    },
   { value: "anime",     label: "Animé",        icon: <span style={{ fontSize: 14 }}>⛩️</span>, badge: "badge-gold"    },
-  { value: "music",     label: "Musique",      icon: <Music size={14} />,                       badge: "badge-green"   },
+  { value: "music",     label: "Artiste Musical", icon: <Music size={14} />,                    badge: "badge-green"   },
   { value: "exclusive", label: "Exclusivités", icon: <span style={{ fontSize: 14 }}>💎</span>, badge: "badge-purple"  },
 ];
 
@@ -142,7 +142,7 @@ function BibliothequeInner() {
                 <span className="badge badge-red">{counts.movie.toLocaleString("fr")} Films</span>
                 <span className="badge badge-blue">{counts.show.toLocaleString("fr")} Séries</span>
                 {counts.anime > 0 && <span className="badge badge-gold">{counts.anime.toLocaleString("fr")} Animés</span>}
-                {counts.music > 0 && <span className="badge badge-green">{counts.music.toLocaleString("fr")} Musiques</span>}
+                {counts.music > 0 && <span className="badge badge-green">{counts.music.toLocaleString("fr")} Artistes</span>}
                 {counts.exclusive > 0 && <span className="badge badge-purple">{counts.exclusive.toLocaleString("fr")} Exclus</span>}
               </div>
             )}
@@ -383,7 +383,7 @@ function CategoryBadge({ cat }: { cat: PlexItem["category"] }) {
     movie:     { label: "Film",        cls: "badge-red"    },
     show:      { label: "Série",       cls: "badge-blue"   },
     anime:     { label: "Animé",       cls: "badge-gold"   },
-    music:     { label: "Musique",     cls: "badge-green"  },
+    music:     { label: "Artiste",      cls: "badge-green"  },
     exclusive: { label: "💎 Exclu",   cls: "badge-purple" },
   };
   const { label, cls } = map[cat] ?? { label: cat, cls: "badge-gray" };

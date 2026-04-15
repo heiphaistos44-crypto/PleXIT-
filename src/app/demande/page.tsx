@@ -45,7 +45,7 @@ const MEDIA_TYPES: {
   { value: "serie",       label: "Série",          emoji: "📺", color: "#a78bfa", border: "#8b5cf6", bg: "rgba(139,92,246,0.08)" },
   { value: "anime",       label: "Animé / Manga",  emoji: "⛩️", color: "#f97316", border: "#ea580c", bg: "rgba(234,88,12,0.08)" },
   { value: "dessin_anime",label: "Dessin Animé",   emoji: "🎨", color: "#22d3ee", border: "#06b6d4", bg: "rgba(6,182,212,0.08)" },
-  { value: "musique",     label: "Musique",        emoji: "🎵", color: "#4ade80", border: "#22c55e", bg: "rgba(34,197,94,0.08)" },
+  { value: "musique",     label: "Artiste Musical", emoji: "🎵", color: "#4ade80", border: "#22c55e", bg: "rgba(34,197,94,0.08)" },
 ];
 
 const GENRES_PAR_TYPE: Record<MediaType, string[]> = {
@@ -126,6 +126,11 @@ export default function DemandePage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!form.titre.trim() || !form.pseudoDiscord.trim()) return;
+    if (!form.verifieExistant) {
+      setStatus("error");
+      setErrorMsg("⚠️ Tu dois d'abord vérifier que le contenu n'est pas déjà dans la bibliothèque Plex.");
+      return;
+    }
     setStatus("loading");
     setErrorMsg("");
     try {
@@ -481,24 +486,45 @@ export default function DemandePage() {
           />
         </FormSection>
 
-        {/* ── VÉRIFICATION ── */}
+        {/* ── VÉRIFICATION OBLIGATOIRE ── */}
         <div style={{
           display: "flex", alignItems: "flex-start", gap: 12,
           padding: "16px 20px", borderRadius: 12, marginBottom: 28,
-          background: "rgba(245,158,11,0.06)", border: "1px solid rgba(245,158,11,0.18)",
+          background: form.verifieExistant
+            ? "rgba(34,197,94,0.06)"
+            : (status === "error" && errorMsg.includes("bibliothèque"))
+              ? "rgba(220,38,38,0.08)"
+              : "rgba(245,158,11,0.06)",
+          border: form.verifieExistant
+            ? "1px solid rgba(34,197,94,0.3)"
+            : (status === "error" && errorMsg.includes("bibliothèque"))
+              ? "1px solid rgba(220,38,38,0.35)"
+              : "1px solid rgba(245,158,11,0.18)",
+          transition: "all 0.2s",
         }}>
-          <Info size={18} color="#f59e0b" style={{ flexShrink: 0, marginTop: 1 }} />
+          <Info size={18}
+            color={form.verifieExistant ? "#22c55e" : "#f59e0b"}
+            style={{ flexShrink: 0, marginTop: 1 }}
+          />
           <label style={{ display: "flex", alignItems: "flex-start", gap: 12, cursor: "pointer", flex: 1 }}>
             <input
               type="checkbox"
+              required
               checked={form.verifieExistant}
-              onChange={e => set("verifieExistant", e.target.checked)}
-              style={{ accentColor: "#f59e0b", width: 16, height: 16, marginTop: 1, flexShrink: 0 }}
+              onChange={e => {
+                set("verifieExistant", e.target.checked);
+                if (e.target.checked) setErrorMsg("");
+              }}
+              style={{ accentColor: "#22c55e", width: 17, height: 17, marginTop: 2, flexShrink: 0, cursor: "pointer" }}
             />
             <span style={{ fontSize: "0.88rem", color: "#d1d5db", lineHeight: 1.5 }}>
-              J&apos;ai vérifié dans la{" "}
-              <a href="/bibliotheque" style={{ color: "#f59e0b", textDecoration: "none", fontWeight: 600 }}>bibliothèque Plex</a>
-              {" "}et ce contenu n&apos;est pas encore disponible.
+              <strong style={{ color: form.verifieExistant ? "#22c55e" : "#f59e0b" }}>Obligatoire</strong>
+              {" — "}J&apos;ai vérifié dans la{" "}
+              <a href="/bibliotheque" target="_blank" rel="noopener noreferrer"
+                style={{ color: "#f59e0b", textDecoration: "none", fontWeight: 600 }}>
+                bibliothèque Plex
+              </a>
+              {" "}et ce contenu n&apos;est <strong>pas encore disponible</strong>.
             </span>
           </label>
         </div>
@@ -507,8 +533,12 @@ export default function DemandePage() {
         <button
           type="submit"
           className="btn-primary"
-          disabled={status === "loading" || !form.titre.trim() || !form.pseudoDiscord.trim()}
-          style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: 10, padding: "16px", fontSize: "1rem" }}
+          disabled={status === "loading" || !form.titre.trim() || !form.pseudoDiscord.trim() || !form.verifieExistant}
+          title={!form.verifieExistant ? "Coche d'abord la case de vérification Plex" : undefined}
+          style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: 10, padding: "16px", fontSize: "1rem",
+            opacity: (!form.titre.trim() || !form.pseudoDiscord.trim() || !form.verifieExistant) ? 0.45 : 1,
+            cursor: (!form.titre.trim() || !form.pseudoDiscord.trim() || !form.verifieExistant) ? "not-allowed" : "pointer",
+          }}
         >
           {status === "loading" ? (
             <><div className="spinner" /> Envoi en cours...</>

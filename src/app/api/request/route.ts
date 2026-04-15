@@ -63,7 +63,7 @@ const TYPE_LABELS: Record<string, string> = {
   serie:        "📺 Série",
   anime:        "⛩️ Animé / Manga",
   dessin_anime: "🎨 Dessin Animé",
-  musique:      "🎵 Musique",
+  musique:      "🎵 Artiste Musical",
 };
 
 const QUALITE_LABELS: Record<string, string> = {
