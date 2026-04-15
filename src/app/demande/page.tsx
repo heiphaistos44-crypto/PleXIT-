@@ -1,22 +1,11 @@
 "use client";
 
-import { useState, useCallback, useEffect, useRef } from "react";
+import { useState, useCallback } from "react";
 import {
   Film, Tv, Send, AlertCircle, CheckCircle2,
   Link2, User, MessageSquare,
-  Star, Zap, Clock, Info, Search, X, Sparkles
+  Star, Zap, Clock, Info, Search, X
 } from "lucide-react";
-
-// ─── Types TMDB ───────────────────────────────────────────────
-interface TmdbResult {
-  id:        number;
-  title:     string;
-  year:      string;
-  poster:    string | null;
-  tmdbUrl:   string;
-  mediaType: "movie" | "tv";
-  overview?: string;
-}
 
 type MediaType = "film" | "serie" | "anime" | "dessin_anime" | "musique";
 type Priorite = "haute" | "moyenne" | "basse";
@@ -43,8 +32,6 @@ interface FormData {
   priorite: Priorite;
   commentaire: string;
   verifieExistant: boolean;
-  // TMDB
-  tmdbPoster: string | null;
 }
 
 const MEDIA_TYPES: {
@@ -111,68 +98,22 @@ const initialForm: FormData = {
   priorite: "moyenne",
   commentaire: "",
   verifieExistant: false,
-  tmdbPoster: null,
 };
 
 const isSeries = (t: MediaType) => t === "serie" || t === "anime" || t === "dessin_anime";
 const hasQuality = (t: MediaType) => t !== "musique";
 
 export default function DemandePage() {
-  const [form,          setForm]         = useState<FormData>(initialForm);
-  const [status,        setStatus]       = useState<"idle" | "loading" | "success" | "error">("idle");
-  const [errorMsg,      setErrorMsg]     = useState("");
-  const [tmdbResults,   setTmdbResults]  = useState<TmdbResult[]>([]);
-  const [tmdbLoading,   setTmdbLoading]  = useState(false);
-  const [showDropdown,  setShowDropdown] = useState(false);
-  const tmdbDebounce    = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const titleInputRef   = useRef<HTMLInputElement>(null);
+  const [form,     setForm]    = useState<FormData>(initialForm);
+  const [status,   setStatus]  = useState<"idle" | "loading" | "success" | "error">("idle");
+  const [errorMsg, setErrorMsg] = useState("");
 
   const set = useCallback(<K extends keyof FormData>(key: K, value: FormData[K]) => {
     setForm(prev => ({ ...prev, [key]: value }));
   }, []);
 
   const setType = (t: MediaType) => {
-    setForm(prev => ({ ...prev, type: t, genres: [], tmdbPoster: null }));
-    setTmdbResults([]);
-    setShowDropdown(false);
-  };
-
-  // ── Recherche TMDB debounced ─────────────────────────────────
-  useEffect(() => {
-    if (tmdbDebounce.current) clearTimeout(tmdbDebounce.current);
-    const q = form.titre.trim();
-    if (q.length < 2 || form.type === "musique") {
-      setTmdbResults([]);
-      setShowDropdown(false);
-      return;
-    }
-    tmdbDebounce.current = setTimeout(async () => {
-      setTmdbLoading(true);
-      try {
-        const res  = await fetch(`/api/tmdb/search?q=${encodeURIComponent(q)}&type=${form.type}`);
-        const data = await res.json();
-        setTmdbResults(data.results ?? []);
-        setShowDropdown((data.results ?? []).length > 0);
-      } catch {
-        setTmdbResults([]);
-      } finally {
-        setTmdbLoading(false);
-      }
-    }, 420);
-    return () => { if (tmdbDebounce.current) clearTimeout(tmdbDebounce.current); };
-  }, [form.titre, form.type]);
-
-  const selectTmdb = (r: TmdbResult) => {
-    setForm(prev => ({
-      ...prev,
-      titre:      r.title,
-      annee:      r.year,
-      lienType:   "tmdb",
-      lienUrl:    r.tmdbUrl,
-      tmdbPoster: r.poster,
-    }));
-    setShowDropdown(false);
-    setTmdbResults([]);
+    setForm(prev => ({ ...prev, type: t, genres: [] }));
   };
 
   const toggleGenre = (genre: string) => {
@@ -195,12 +136,10 @@ export default function DemandePage() {
     setStatus("loading");
     setErrorMsg("");
     try {
-      // eslint-disable-next-line @typescript-eslint/no-unused-vars
-      const { tmdbPoster: _tmdbPoster, ...formPayload } = form;
       const res = await fetch("/api/request", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(formPayload),
+        body: JSON.stringify(form),
       });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
@@ -274,122 +213,25 @@ export default function DemandePage() {
           </div>
         </FormSection>
 
-        {/* ── SECTION 2 : IDENTIFICATION + TMDB ── */}
+        {/* ── SECTION 2 : IDENTIFICATION ── */}
         <FormSection step={2} title="Identification" icon={<Search size={16} />}>
-          <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 16, alignItems: "flex-start" }}>
+          <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 16 }}>
             <div>
-              <label style={labelStyle}>
-                Titre *
-                {form.type !== "musique" && (
-                  <span style={{ marginLeft: 8, fontSize: "0.68rem", color: "#22c55e", fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 3 }}>
-                    <Sparkles size={10} /> Recherche TMDB automatique
-                  </span>
-                )}
-              </label>
-              {/* Wrapper relatif pour le dropdown */}
-              <div style={{ position: "relative" }}>
-                {/* Poster miniature si sélectionné */}
-                {form.tmdbPoster && (
-                  <div style={{
-                    position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)",
-                    width: 28, height: 42, borderRadius: 4, overflow: "hidden", zIndex: 1,
-                  }}>
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={form.tmdbPoster} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
-                  </div>
-                )}
-                <input
-                  ref={titleInputRef}
-                  className="input-plexit"
-                  placeholder={
-                    form.type === "film"         ? "Ex: Dune Part Two" :
-                    form.type === "serie"        ? "Ex: Breaking Bad" :
-                    form.type === "anime"        ? "Ex: Attack on Titan" :
-                    form.type === "dessin_anime" ? "Ex: Avatar: The Last Airbender" :
-                    "Ex: Daft Punk, Aya Nakamura…"
-                  }
-                  value={form.titre}
-                  onChange={e => {
-                    set("titre", e.target.value);
-                    if (form.tmdbPoster) set("tmdbPoster", null);
-                  }}
-                  onFocus={() => tmdbResults.length > 0 && setShowDropdown(true)}
-                  onBlur={() => setTimeout(() => setShowDropdown(false), 180)}
-                  required
-                  style={{ paddingLeft: form.tmdbPoster ? 46 : undefined }}
-                />
-                {/* Spinner TMDB */}
-                {tmdbLoading && (
-                  <div style={{
-                    position: "absolute", right: 12, top: "50%", transform: "translateY(-50%)",
-                    width: 14, height: 14, borderRadius: "50%",
-                    border: "2px solid rgba(34,197,94,0.2)", borderTopColor: "#22c55e",
-                    animation: "spin 0.7s linear infinite",
-                  }} />
-                )}
-
-                {/* Dropdown résultats TMDB */}
-                {showDropdown && tmdbResults.length > 0 && (
-                  <div style={{
-                    position: "absolute", top: "calc(100% + 4px)", left: 0, right: 0, zIndex: 100,
-                    background: "rgba(14,14,14,0.98)", borderRadius: 12,
-                    border: "1px solid rgba(255,255,255,0.12)",
-                    boxShadow: "0 8px 32px rgba(0,0,0,0.6)",
-                    overflow: "hidden", maxHeight: 320, overflowY: "auto",
-                  }}>
-                    <div style={{ padding: "6px 10px 4px", fontSize: "0.65rem", color: "#4b5563", fontWeight: 700, letterSpacing: "0.08em", borderBottom: "1px solid rgba(255,255,255,0.05)" }}>
-                      RÉSULTATS TMDB
-                    </div>
-                    {tmdbResults.map(r => (
-                      <button
-                        key={`${r.mediaType}-${r.id}`}
-                        type="button"
-                        onMouseDown={() => selectTmdb(r)}
-                        style={{
-                          width: "100%", display: "flex", alignItems: "center", gap: 10,
-                          padding: "10px 12px", cursor: "pointer", textAlign: "left",
-                          background: "transparent", border: "none",
-                          borderBottom: "1px solid rgba(255,255,255,0.04)",
-                          transition: "background 0.1s",
-                        }}
-                        onMouseEnter={e => (e.currentTarget.style.background = "rgba(255,255,255,0.05)")}
-                        onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
-                      >
-                        {/* Poster */}
-                        <div style={{
-                          width: 32, height: 48, borderRadius: 4, flexShrink: 0,
-                          background: "rgba(255,255,255,0.06)", overflow: "hidden",
-                          display: "flex", alignItems: "center", justifyContent: "center",
-                        }}>
-                          {r.poster
-                            ? /* eslint-disable-next-line @next/next/no-img-element */
-                              <img src={r.poster} alt={r.title} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
-                            : <span style={{ fontSize: "1rem" }}>🎬</span>
-                          }
-                        </div>
-                        {/* Infos */}
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                          <div style={{ fontWeight: 700, fontSize: "0.84rem", color: "#f9fafb", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                            {r.title}
-                          </div>
-                          <div style={{ fontSize: "0.7rem", color: "#6b7280", marginTop: 2 }}>
-                            {r.year && <span>{r.year}</span>}
-                            <span style={{
-                              marginLeft: 6, fontSize: "0.62rem", fontWeight: 700, padding: "1px 5px",
-                              borderRadius: 4, background: r.mediaType === "movie" ? "rgba(239,68,68,0.1)" : "rgba(139,92,246,0.1)",
-                              color: r.mediaType === "movie" ? "#ef4444" : "#a78bfa",
-                            }}>
-                              {r.mediaType === "movie" ? "Film" : "Série/Animé"}
-                            </span>
-                          </div>
-                        </div>
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
+              <label style={labelStyle}>Titre *</label>
+              <input
+                className="input-plexit"
+                placeholder={
+                  form.type === "film"         ? "Ex: Dune Part Two" :
+                  form.type === "serie"        ? "Ex: Breaking Bad" :
+                  form.type === "anime"        ? "Ex: Attack on Titan" :
+                  form.type === "dessin_anime" ? "Ex: Avatar: The Last Airbender" :
+                  "Ex: Daft Punk - Random Access Memories"
+                }
+                value={form.titre}
+                onChange={e => set("titre", e.target.value)}
+                required
+              />
             </div>
-
             <div>
               <label style={labelStyle}>Année</label>
               <input
