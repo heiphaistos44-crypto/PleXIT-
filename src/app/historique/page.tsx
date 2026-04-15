@@ -7,6 +7,7 @@ import {
   RefreshCw, Filter, ChevronRight, Clapperboard,
   Star, Calendar, Trash2, Check, X,
 } from "lucide-react";
+import PushSubscribe from "@/components/PushSubscribe";
 
 // ─── Types ────────────────────────────────────────────────────
 interface HistoriqueRequest {
@@ -170,9 +171,16 @@ function RequestCard({
           <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
             <Calendar size={11} /> {dateReq}
           </span>
-          <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
+          <Link href={`/profil/${encodeURIComponent(req.pseudo)}`} style={{
+            display: "flex", alignItems: "center", gap: 4,
+            color: "#4b5563", textDecoration: "none",
+            transition: "color 0.15s",
+          }}
+            onMouseEnter={e => (e.currentTarget.style.color = "#9ca3af")}
+            onMouseLeave={e => (e.currentTarget.style.color = "#4b5563")}
+          >
             🎭 {req.pseudo}
-          </span>
+          </Link>
           {req.saisons && <span>📁 {req.saisons}</span>}
           {req.qualite && <span style={{ color: "#6b7280" }}>{req.qualite}</span>}
           {req.langue && <span style={{ color: "#6b7280" }}>{req.langue.toUpperCase()}</span>}
@@ -329,7 +337,8 @@ export default function HistoriquePage() {
               <span className="badge badge-red">{countByStatus.rejected} Non retenus</span>
             </div>
           </div>
-          <div style={{ display: "flex", gap: 8 }}>
+          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <PushSubscribe />
             <Link href="/demande" style={{ textDecoration: "none" }}>
               <button className="btn-primary" style={{ display: "flex", alignItems: "center", gap: 7 }}>
                 <Film size={14} /> Nouvelle demande <ChevronRight size={13} />

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { promises as fs } from "fs";
 import path from "path";
 import { StoredRequest } from "../../request/route";
+import { sendPushToPseudo } from "@/lib/sendPush";
 
 const DATA_PATH = path.join(process.cwd(), "data", "requests.json");
 
@@ -118,35 +119,50 @@ export async function POST(req: NextRequest) {
     timestamp: new Date().toISOString(),
   };
 
+  // ── Mention Discord si userId fourni ──────────────────────
+  const discordMention = request.discordUserId ? `<@${request.discordUserId}>` : `**${request.pseudo}**`;
+  const discordContent = `🔔 ${discordMention} — ta demande **${request.titre}** → ${statusLabel}`;
+
+  let discordError = false;
   try {
     const discordRes = await fetch(webhookUrl, {
       method:  "POST",
       headers: { "Content-Type": "application/json" },
       body:    JSON.stringify({
-        content: `🔔 **Réponse admin** pour la demande de **${request.pseudo}** : **${request.titre}** → ${statusLabel}`,
-        embeds:  [embed],
+        content:  discordContent,
+        embeds:   [embed],
         username: "PleXIT Admin",
       }),
     });
-
     if (!discordRes.ok) {
-      const errText = await discordRes.text();
-      console.error("Discord webhook error:", errText);
-      // On ne bloque pas : la sauvegarde est déjà faite
-      return NextResponse.json({
-        success: true,
-        message: "Statut mis à jour mais Discord a retourné une erreur",
-        discordError: true,
-      });
+      console.error("Discord webhook error:", await discordRes.text());
+      discordError = true;
     }
   } catch (err) {
     console.error("Erreur Discord:", err);
-    return NextResponse.json({
-      success: true,
-      message: "Statut mis à jour mais Discord injoignable",
-      discordError: true,
-    });
+    discordError = true;
   }
 
-  return NextResponse.json({ success: true, message: "Statut mis à jour et notification Discord envoyée" });
+  // ── Notification push PWA ─────────────────────────────────
+  const pushMessages: Record<string, { title: string; body: string }> = {
+    added:    { title: "✅ Ajouté à Plex !",    body: `"${request.titre}" est maintenant disponible.` },
+    rejected: { title: "❌ Demande non retenue", body: `"${request.titre}" n'a pas pu être ajouté.`    },
+    pending:  { title: "🕐 Remis en attente",   body: `"${request.titre}" est de nouveau en attente.`  },
+  };
+  const pushMsg = pushMessages[body.status];
+  if (pushMsg) {
+    sendPushToPseudo(request.pseudo, {
+      ...pushMsg,
+      url: `/historique`,
+      tag: `plexit-${request.id}`,
+    }).catch(console.error); // fire & forget
+  }
+
+  return NextResponse.json({
+    success: true,
+    message: discordError
+      ? "Statut mis à jour, push envoyé, Discord injoignable"
+      : "Statut mis à jour, Discord notifié, push envoyé",
+    discordError,
+  });
 }

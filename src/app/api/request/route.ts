@@ -7,23 +7,24 @@ import crypto from "crypto";
 const DATA_PATH = path.join(process.cwd(), "data", "requests.json");
 
 export interface StoredRequest {
-  id:          string;
-  type:        string;
-  titre:       string;
-  annee?:      string;
-  genres?:     string[];
-  langue?:     string;
-  qualite?:    string;
-  saisons?:    string;
-  pseudo:      string;
-  lienType?:   string;
-  lienUrl?:    string;
-  commentaire?: string;
-  priorite:    string;
-  requestedAt: string; // ISO
-  status:      "pending" | "added" | "rejected";
-  addedAt?:    string; // ISO, si status === "added"
-  note?:       string; // note de l'admin
+  id:             string;
+  type:           string;
+  titre:          string;
+  annee?:         string;
+  genres?:        string[];
+  langue?:        string;
+  qualite?:       string;
+  saisons?:       string;
+  pseudo:         string;
+  discordUserId?: string; // ID numérique Discord pour les mentions
+  lienType?:      string;
+  lienUrl?:       string;
+  commentaire?:   string;
+  priorite:       string;
+  requestedAt:    string; // ISO
+  status:         "pending" | "added" | "rejected";
+  addedAt?:       string; // ISO, si status === "added"
+  note?:          string; // note de l'admin
 }
 
 async function readRequests(): Promise<StoredRequest[]> {
@@ -53,6 +54,7 @@ interface RequestBody {
   lienType?: "tmdb" | "imdb" | "allocine" | "youtube" | "";
   lienUrl?: string;
   pseudoDiscord: string;
+  discordUserId?: string;
   priorite?: "haute" | "moyenne" | "basse";
   commentaire?: string;
   verifieExistant?: boolean;
@@ -229,8 +231,9 @@ export async function POST(req: NextRequest) {
       langue:      body.langue,
       qualite:     body.qualite,
       saisons:     body.saisons,
-      pseudo:      body.pseudoDiscord.trim(),
-      lienType:    body.lienType || undefined,
+      pseudo:         body.pseudoDiscord.trim(),
+      discordUserId:  body.discordUserId?.trim() || undefined,
+      lienType:       body.lienType || undefined,
       lienUrl:     body.lienUrl || undefined,
       commentaire: body.commentaire || undefined,
       priorite:    priorite,
