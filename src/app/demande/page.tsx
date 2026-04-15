@@ -4,7 +4,7 @@ import { useState, useCallback } from "react";
 import {
   Film, Tv, Send, AlertCircle, CheckCircle2,
   Link2, User, MessageSquare,
-  Star, Zap, Clock, Info, Search, Music, X
+  Star, Zap, Clock, Info, Search, X
 } from "lucide-react";
 
 type MediaType = "film" | "serie" | "anime" | "dessin_anime" | "musique";
@@ -147,7 +147,6 @@ export default function DemandePage() {
   };
 
   const currentMedia = MEDIA_TYPES.find(m => m.value === form.type)!;
-  const step = (n: number) => (form.type === "musique" ? n - (n > 3 ? 1 : 0) : n);
 
   if (status === "success") return <SuccessScreen onNew={() => setStatus("idle")} />;
 

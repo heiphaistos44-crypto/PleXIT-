@@ -5,7 +5,7 @@ import { useSearchParams } from "next/navigation";
 import {
   Film, Tv, Search, RefreshCw, Star,
   AlertCircle, Library, ChevronRight, ChevronLeft,
-  ExternalLink, SlidersHorizontal, X, Music
+  ExternalLink, X, Music
 } from "lucide-react";
 
 interface PlexItem {
@@ -65,8 +65,6 @@ function BibliothequeInner() {
   );
   const [sort,     setSort]     = useState<SortMode>("recent");
   const [page,     setPage]     = useState(1);
-  const [showFilters, setShowFilters] = useState(false);
-
   const [selected, setSelected] = useState<PlexItem | null>(null);
 
   // Debounce de la recherche
