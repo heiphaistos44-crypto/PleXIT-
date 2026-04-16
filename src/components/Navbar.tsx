@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Film, Library, Home, ExternalLink, BarChart3, ClipboardList } from "lucide-react";
+import { Film, Library, Home, ExternalLink, BarChart3, ClipboardList, Sparkles } from "lucide-react";
 
 export default function Navbar() {
   const pathname = usePathname();
@@ -54,6 +54,7 @@ export default function Navbar() {
           <NavItem href="/" icon={<Home size={15} />} label="Accueil" active={pathname === "/"} />
           <NavItem href="/demande" icon={<Film size={15} />} label="Demande" active={pathname === "/demande"} />
           <NavItem href="/bibliotheque" icon={<Library size={15} />} label="Bibliothèque" active={pathname === "/bibliotheque"} />
+          <NavItem href="/nouveautes" icon={<Sparkles size={15} />} label="Nouveautés" active={pathname === "/nouveautes"} />
           <NavItem href="/historique" icon={<ClipboardList size={15} />} label="Historique" active={pathname === "/historique"} />
           <NavItem href="/forum" icon={<BarChart3 size={15} />} label="Forum" active={pathname === "/forum"} />
           <NavItem href="/status" icon={<span style={{ fontSize: 11 }}>🟢</span>} label="Statut" active={pathname === "/status"} />

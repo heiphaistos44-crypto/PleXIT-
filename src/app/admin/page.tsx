@@ -6,7 +6,7 @@ import {
   Shield, LogOut, RefreshCw, Film, Tv, Music,
   Clapperboard, Clock, CheckCircle2, XCircle,
   ChevronRight, Send, Trash2, X, Check, BarChart3,
-  Calendar, Star, Filter,
+  Calendar, Star, Filter, Bell,
 } from "lucide-react";
 
 // ─── Types ────────────────────────────────────────────────────
@@ -467,6 +467,8 @@ function Dashboard({ pin, onLogout }: { pin: string; onLogout: () => void }) {
   const [filterStatus, setFilterStatus] = useState<"all" | "pending" | "added" | "rejected">("all");
   const [filterType,   setFilterType]   = useState("all");
   const [search,       setSearch]       = useState("");
+  const [remindState,  setRemindState]  = useState<"idle" | "loading" | "success" | "error">("idle");
+  const [remindMsg,    setRemindMsg]    = useState<string | null>(null);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -483,6 +485,31 @@ function Dashboard({ pin, onLogout }: { pin: string; onLogout: () => void }) {
   }, []);
 
   useEffect(() => { fetchData(); }, [fetchData]);
+
+  const handleRemind = async () => {
+    setRemindState("loading");
+    setRemindMsg(null);
+    try {
+      const res = await fetch("/api/admin/remind", {
+        method:  "POST",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify({ pin }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message ?? `HTTP ${res.status}`);
+      setRemindState("success");
+      setRemindMsg(
+        data.count === 0
+          ? "Aucune demande en attente"
+          : `✅ Rappel envoyé — ${data.count} demande${data.count > 1 ? "s" : ""} en attente`
+      );
+    } catch (err: unknown) {
+      setRemindState("error");
+      setRemindMsg(`❌ ${err instanceof Error ? err.message : "Erreur"}`);
+    } finally {
+      setTimeout(() => { setRemindState("idle"); setRemindMsg(null); }, 4000);
+    }
+  };
 
   const handleUpdate = (id: string, status: "pending" | "added" | "rejected", note?: string) => {
     if (note === "__deleted__") {
@@ -574,25 +601,58 @@ function Dashboard({ pin, onLogout }: { pin: string; onLogout: () => void }) {
             </div>
           </div>
 
-          <div style={{ display: "flex", gap: 8 }}>
-            <Link href="/historique" style={{ textDecoration: "none" }}>
-              <button style={{
+          <div style={{ display: "flex", gap: 8, flexDirection: "column", alignItems: "flex-end" }}>
+            <div style={{ display: "flex", gap: 8 }}>
+              <Link href="/historique" style={{ textDecoration: "none" }}>
+                <button style={{
+                  display: "flex", alignItems: "center", gap: 6,
+                  padding: "9px 14px", borderRadius: 10, cursor: "pointer",
+                  background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)",
+                  color: "#6b7280", fontSize: "0.8rem", fontWeight: 600,
+                }}>
+                  <BarChart3 size={13} /> Vue publique
+                </button>
+              </Link>
+              <button
+                onClick={handleRemind}
+                disabled={remindState === "loading"}
+                title="Envoyer un rappel Discord des demandes en attente"
+                style={{
+                  display: "flex", alignItems: "center", gap: 6,
+                  padding: "9px 14px", borderRadius: 10, cursor: remindState === "loading" ? "not-allowed" : "pointer",
+                  background: "rgba(245,158,11,0.08)", border: "1px solid rgba(245,158,11,0.2)",
+                  color: "#f59e0b", fontSize: "0.8rem", fontWeight: 600,
+                  opacity: remindState === "loading" ? 0.6 : 1,
+                  transition: "all 0.2s",
+                }}
+              >
+                <Bell size={13} style={{ animation: remindState === "loading" ? "spin 0.7s linear infinite" : "none" }} />
+                📋 Rappel Discord
+              </button>
+              <button onClick={fetchData} style={{
                 display: "flex", alignItems: "center", gap: 6,
                 padding: "9px 14px", borderRadius: 10, cursor: "pointer",
                 background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)",
-                color: "#6b7280", fontSize: "0.8rem", fontWeight: 600,
+                color: "#6b7280", fontSize: "0.8rem",
               }}>
-                <BarChart3 size={13} /> Vue publique
+                <RefreshCw size={13} style={{ animation: loading ? "spin 0.7s linear infinite" : "none" }} />
               </button>
-            </Link>
-            <button onClick={fetchData} style={{
-              display: "flex", alignItems: "center", gap: 6,
-              padding: "9px 14px", borderRadius: 10, cursor: "pointer",
-              background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)",
-              color: "#6b7280", fontSize: "0.8rem",
-            }}>
-              <RefreshCw size={13} style={{ animation: loading ? "spin 0.7s linear infinite" : "none" }} />
-            </button>
+            </div>
+            {/* Feedback rappel */}
+            {remindMsg && (
+              <span style={{
+                fontSize: "0.73rem", padding: "4px 10px", borderRadius: 8,
+                background: remindState === "success" || remindMsg.startsWith("Aucune")
+                  ? "rgba(34,197,94,0.08)"
+                  : "rgba(239,68,68,0.08)",
+                border: remindState === "success" || remindMsg.startsWith("Aucune")
+                  ? "1px solid rgba(34,197,94,0.2)"
+                  : "1px solid rgba(239,68,68,0.2)",
+                color: remindState === "success" || remindMsg.startsWith("Aucune") ? "#22c55e" : "#ef4444",
+              }}>
+                {remindMsg}
+              </span>
+            )}
           </div>
         </div>
       </div>

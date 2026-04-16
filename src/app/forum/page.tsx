@@ -5,7 +5,7 @@ import Link from "next/link";
 import {
   Film, Tv, Music, Library, Star, Clock,
   ChevronRight, Scale, TrendingUp, Diamond,
-  CalendarDays, Clapperboard, RefreshCw,
+  Clapperboard, RefreshCw,
 } from "lucide-react";
 
 // ─── Types ────────────────────────────────────────────────────
@@ -31,21 +31,6 @@ interface ApiResponse {
   demo?:      boolean;
 }
 
-// ─── Sorties attendues (curatées) ─────────────────────────────
-const UPCOMING: { title: string; year: number; type: string; genre: string[]; date: string; note?: string }[] = [
-  { title: "Avatar 3",                              year: 2025, type: "movie", genre: ["Science-Fiction","Aventure"],   date: "Déc. 2025" },
-  { title: "Mission: Impossible – The Final Reckoning", year: 2025, type: "movie", genre: ["Action","Thriller"],       date: "Mai 2025"  },
-  { title: "Jurassic World Rebirth",                year: 2025, type: "movie", genre: ["Aventure","Science-Fiction"], date: "Juil. 2025" },
-  { title: "Thunderbolts*",                         year: 2025, type: "movie", genre: ["Action","Super-Héros"],        date: "Mai 2025",  note: "MCU" },
-  { title: "Sinners",                               year: 2025, type: "movie", genre: ["Horreur","Thriller"],          date: "Avr. 2025"  },
-  { title: "Final Destination: Bloodlines",         year: 2025, type: "movie", genre: ["Horreur","Thriller"],          date: "Mai 2025"   },
-  { title: "Stranger Things — Saison 5",            year: 2025, type: "show",  genre: ["Science-Fiction","Horreur"],   date: "2025"       },
-  { title: "The Last of Us — Saison 2",             year: 2025, type: "show",  genre: ["Action","Drame"],              date: "Avr. 2025"  },
-  { title: "The Witcher — Saison 4",                year: 2025, type: "show",  genre: ["Fantasy","Action"],            date: "2025"       },
-  { title: "Demon Slayer — Arc Final",              year: 2025, type: "anime", genre: ["Action","Shonen"],             date: "2025"       },
-  { title: "One Piece (Live Action) — Saison 2",   year: 2025, type: "anime", genre: ["Aventure","Action"],           date: "2025"       },
-  { title: "Jujutsu Kaisen — Saison 3",            year: 2025, type: "anime", genre: ["Action","Shonen"],             date: "2025",      note: "Cours actuellement" },
-];
 
 // ─── Seuil "récent" : 45 jours ────────────────────────────────
 const RECENT_DAYS  = 45;
@@ -60,17 +45,6 @@ const CAT_COLOR: Record<string, string> = {
   exclusive: "#a855f7",
 };
 
-const TYPE_COLOR: Record<string, string> = {
-  movie: "#ef4444",
-  show:  "#3b82f6",
-  anime: "#f59e0b",
-};
-
-const TYPE_LABEL: Record<string, string> = {
-  movie: "Film",
-  show:  "Série",
-  anime: "Animé",
-};
 
 // ─── Mini-card affiche ────────────────────────────────────────
 function ThumbCard({ item }: { item: PlexItem }) {
@@ -116,42 +90,6 @@ function ThumbCard({ item }: { item: PlexItem }) {
   );
 }
 
-// ─── Card "À venir" ───────────────────────────────────────────
-function UpcomingCard({ item }: { item: typeof UPCOMING[0] }) {
-  const color = TYPE_COLOR[item.type] ?? "#9ca3af";
-  return (
-    <div style={{
-      padding: "14px 16px", borderRadius: 12,
-      background: "rgba(255,255,255,0.02)", border: `1px solid ${color}22`,
-      position: "relative", overflow: "hidden",
-    }}>
-      <div style={{
-        position: "absolute", top: 0, left: 0, width: 3, height: "100%",
-        background: color, borderRadius: "3px 0 0 3px",
-      }} />
-      <div style={{ paddingLeft: 8 }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8, marginBottom: 4 }}>
-          <div style={{ fontWeight: 700, fontSize: "0.85rem", color: "#f9fafb" }}>{item.title}</div>
-          <span style={{
-            flexShrink: 0, fontSize: "0.65rem", fontWeight: 700, padding: "2px 8px",
-            borderRadius: 999, background: `${color}18`, color, border: `1px solid ${color}33`,
-          }}>
-            {item.date}
-          </span>
-        </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-          <span style={{ fontSize: "0.68rem", fontWeight: 600, color, opacity: 0.85 }}>
-            {TYPE_LABEL[item.type] ?? item.type}
-          </span>
-          {item.genre.map(g => (
-            <span key={g} style={{ fontSize: "0.65rem", color: "#6b7280" }}>{g}</span>
-          ))}
-          {item.note && <span style={{ fontSize: "0.65rem", color: "#a855f7", fontWeight: 700 }}>{item.note}</span>}
-        </div>
-      </div>
-    </div>
-  );
-}
 
 // ─── Composant principal ──────────────────────────────────────
 export default function ForumPage() {
@@ -403,30 +341,6 @@ export default function ForumPage() {
           </div>
         </section>
       )}
-
-      <div className="divider-red" style={{ marginBottom: 48 }} />
-
-      {/* ─── SORTIES ATTENDUES ─── */}
-      <section style={{ marginBottom: 56 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
-          <CalendarDays size={18} color="#a855f7" />
-          <h2 style={{ fontSize: "1.1rem", fontWeight: 800, margin: 0 }}>Sorties attendues</h2>
-          <span style={{
-            fontSize: "0.72rem", fontWeight: 700, padding: "2px 10px", borderRadius: 999,
-            background: "rgba(168,85,247,0.1)", border: "1px solid rgba(168,85,247,0.25)", color: "#a855f7",
-          }}>
-            💎 Exclusivités
-          </span>
-        </div>
-        <p style={{ color: "#4b5563", fontSize: "0.82rem", marginBottom: 20 }}>
-          Titres très attendus qui seront ajoutés dès leur sortie.
-        </p>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 10 }}>
-          {UPCOMING.map((item, i) => (
-            <UpcomingCard key={i} item={item} />
-          ))}
-        </div>
-      </section>
 
       <div className="divider-red" style={{ marginBottom: 48 }} />
 

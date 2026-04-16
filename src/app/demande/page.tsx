@@ -107,6 +107,10 @@ export default function DemandePage() {
   const [form,     setForm]    = useState<FormData>(initialForm);
   const [status,   setStatus]  = useState<"idle" | "loading" | "success" | "error">("idle");
   const [errorMsg, setErrorMsg] = useState("");
+  const [duplicateWarning, setDuplicateWarning] = useState<{
+    id: string; titre: string; status: string; pseudo: string;
+  } | null>(null);
+  const [forceMode, setForceMode] = useState(false);
 
   const set = useCallback(<K extends keyof FormData>(key: K, value: FormData[K]) => {
     setForm(prev => ({ ...prev, [key]: value }));
@@ -136,17 +140,32 @@ export default function DemandePage() {
     setStatus("loading");
     setErrorMsg("");
     try {
+      const payload = forceMode ? { ...form, force: true } : form;
       const res = await fetch("/api/request", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(form),
+        body: JSON.stringify(payload),
       });
+      if (res.status === 429) {
+        const data = await res.json().catch(() => ({}));
+        setStatus("error");
+        setErrorMsg(data.message || "Limite de demandes atteinte.");
+        return;
+      }
+      if (res.status === 409) {
+        const data = await res.json().catch(() => ({}));
+        setDuplicateWarning(data.existing ?? null);
+        setStatus("error");
+        return;
+      }
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
         throw new Error(data.message || "Erreur lors de l'envoi");
       }
       setStatus("success");
       setForm(initialForm);
+      setForceMode(false);
+      setDuplicateWarning(null);
     } catch (err) {
       setStatus("error");
       setErrorMsg(err instanceof Error ? err.message : "Erreur inconnue");
@@ -172,14 +191,58 @@ export default function DemandePage() {
       </div>
 
       {/* Error */}
-      {status === "error" && (
+      {status === "error" && errorMsg && (
         <div style={{
           display: "flex", alignItems: "center", gap: 10,
           padding: "14px 18px", borderRadius: 12, marginBottom: 24,
           background: "rgba(220,38,38,0.1)", border: "1px solid rgba(220,38,38,0.3)", color: "#ef4444",
         }}>
           <AlertCircle size={18} />
-          <span style={{ fontSize: "0.9rem" }}>{errorMsg || "Une erreur est survenue."}</span>
+          <span style={{ fontSize: "0.9rem" }}>{errorMsg}</span>
+        </div>
+      )}
+
+      {/* Duplicate warning */}
+      {duplicateWarning && (
+        <div style={{
+          padding: "16px 20px", borderRadius: 12, marginBottom: 24,
+          background: "rgba(245,158,11,0.08)", border: "1px solid rgba(245,158,11,0.3)",
+          display: "flex", flexDirection: "column", gap: 10,
+        }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <AlertCircle size={18} color="#f59e0b" />
+            <span style={{ fontWeight: 700, color: "#f59e0b", fontSize: "0.9rem" }}>
+              Demande similaire déjà existante
+            </span>
+          </div>
+          <p style={{ fontSize: "0.85rem", color: "#d1d5db", margin: 0 }}>
+            <strong>« {duplicateWarning.titre} »</strong> a déjà été demandé par <strong>{duplicateWarning.pseudo}</strong>{" "}
+            — statut : <strong>{duplicateWarning.status === "pending" ? "⏳ En attente" : duplicateWarning.status === "added" ? "✅ Déjà ajouté" : "❌ Non retenu"}</strong>.
+          </p>
+          <div style={{ display: "flex", gap: 10 }}>
+            <button
+              type="button"
+              onClick={() => { setForceMode(true); setDuplicateWarning(null); setStatus("idle"); }}
+              style={{
+                padding: "8px 16px", borderRadius: 8, cursor: "pointer",
+                background: "rgba(245,158,11,0.12)", border: "1px solid rgba(245,158,11,0.3)",
+                color: "#f59e0b", fontSize: "0.82rem", fontWeight: 700,
+              }}
+            >
+              Envoyer quand même
+            </button>
+            <button
+              type="button"
+              onClick={() => { setDuplicateWarning(null); setForceMode(false); setStatus("idle"); }}
+              style={{
+                padding: "8px 16px", borderRadius: 8, cursor: "pointer",
+                background: "transparent", border: "1px solid rgba(255,255,255,0.1)",
+                color: "#6b7280", fontSize: "0.82rem",
+              }}
+            >
+              Annuler
+            </button>
+          </div>
         </div>
       )}
 
@@ -228,7 +291,11 @@ export default function DemandePage() {
                   "Ex: Daft Punk - Random Access Memories"
                 }
                 value={form.titre}
-                onChange={e => set("titre", e.target.value)}
+                onChange={e => {
+                  set("titre", e.target.value);
+                  setDuplicateWarning(null);
+                  setForceMode(false);
+                }}
                 required
               />
             </div>
@@ -373,6 +440,42 @@ export default function DemandePage() {
 
         {/* ── SECTION LIEN ── */}
         <FormSection step={form.type === "musique" ? 4 : isSeries(form.type) ? 6 : 5} title="Lien de référence" icon={<Link2 size={16} />}>
+
+          {/* Recherche rapide */}
+          {form.titre.trim() && (
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ ...labelStyle, marginBottom: 8 }}>
+                🔍 Recherche rapide
+                <span style={{ marginLeft: 8, fontSize: "0.72rem", color: "#4b5563" }}>ouvre dans un nouvel onglet</span>
+              </label>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                {[
+                  { label: "Allociné",  color: "#f97316", url: `https://www.allocine.fr/rechercher/?q=${encodeURIComponent(form.titre)}` },
+                  { label: "IMDb",      color: "#f59e0b", url: `https://www.imdb.com/find/?q=${encodeURIComponent(form.titre)}&s=tt` },
+                  { label: "YouTube",   color: "#ef4444", url: `https://www.youtube.com/results?search_query=${encodeURIComponent(form.titre + (form.annee ? " " + form.annee : "") + " trailer")}` },
+                  { label: "TMDB",      color: "#22c55e", url: `https://www.themoviedb.org/search?query=${encodeURIComponent(form.titre)}` },
+                ].map(({ label, color, url }) => (
+                  <a
+                    key={label}
+                    href={url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={{
+                      display: "flex", alignItems: "center", gap: 6,
+                      padding: "7px 14px", borderRadius: 9, cursor: "pointer",
+                      border: `1px solid ${color}40`,
+                      background: `${color}10`,
+                      color, fontSize: "0.8rem", fontWeight: 700,
+                      textDecoration: "none", transition: "all 0.2s",
+                    }}
+                  >
+                    ↗ {label}
+                  </a>
+                ))}
+              </div>
+            </div>
+          )}
+
           <label style={labelStyle}>
             Source du lien
             <span style={{ marginLeft: 8, fontSize: "0.72rem", color: "#4b5563" }}>(recommandé pour éviter les doublons)</span>

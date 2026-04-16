@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
-import { RefreshCw, Shield, CheckCircle2, XCircle, AlertTriangle, Zap } from "lucide-react";
+import { RefreshCw, Shield, CheckCircle2, XCircle, AlertTriangle, Zap, Users, MonitorPlay } from "lucide-react";
 
 // ─── Types ────────────────────────────────────────────────────
 interface StatusData {
@@ -14,6 +14,11 @@ interface StatusData {
     latency: number;
   };
   serverTime: string;
+}
+
+interface SessionsData {
+  total:    number;
+  sessions: { state: string }[];
 }
 
 // ─── Indicateur de latence ────────────────────────────────────
@@ -224,9 +229,11 @@ function AdminPanel({ onUpdate }: { onUpdate: () => void }) {
 
 // ─── Page principale ──────────────────────────────────────────
 export default function StatusPage() {
-  const [data,      setData]      = useState<StatusData | null>(null);
-  const [loading,   setLoading]   = useState(true);
-  const [lastCheck, setLastCheck] = useState<Date | null>(null);
+  const [data,           setData]           = useState<StatusData | null>(null);
+  const [loading,        setLoading]        = useState(true);
+  const [lastCheck,      setLastCheck]      = useState<Date | null>(null);
+  const [sessionsData,   setSessionsData]   = useState<SessionsData | null>(null);
+  const [sessLoading,    setSessLoading]    = useState(true);
 
   const fetchStatus = useCallback(async () => {
     setLoading(true);
@@ -243,11 +250,26 @@ export default function StatusPage() {
     }
   }, []);
 
+  const fetchSessions = useCallback(async () => {
+    setSessLoading(true);
+    try {
+      const res = await fetch("/api/plex/sessions", { cache: "no-store" });
+      if (!res.ok) return;
+      const json: SessionsData = await res.json();
+      setSessionsData(json);
+    } catch {
+      // ignore
+    } finally {
+      setSessLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     fetchStatus();
-    const id = setInterval(fetchStatus, 60_000); // refresh auto 60s
+    fetchSessions();
+    const id = setInterval(() => { fetchStatus(); fetchSessions(); }, 30_000); // refresh 30s
     return () => clearInterval(id);
-  }, [fetchStatus]);
+  }, [fetchStatus, fetchSessions]);
 
   const siteOnline = !data?.maintenance;
   const plexOnline = data?.plex.online ?? false;
@@ -340,6 +362,70 @@ export default function StatusPage() {
           )}
         </div>
       </div>
+
+      {/* ─── ACTIVITÉ EN DIRECT ─── */}
+      {(() => {
+        const total   = sessionsData?.total ?? 0;
+        const playing = sessionsData?.sessions.filter(s => s.state === "playing").length ?? 0;
+        const paused  = sessionsData?.sessions.filter(s => s.state === "paused").length ?? 0;
+        const isOnline = data?.plex.online ?? false;
+
+        return (
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 32 }}>
+            {/* Membres en ligne (sessions actives) */}
+            <div style={{
+              padding: "20px 22px", borderRadius: 14,
+              background: total > 0 ? "rgba(34,197,94,0.04)" : "rgba(255,255,255,0.02)",
+              border: total > 0 ? "1px solid rgba(34,197,94,0.18)" : "1px solid rgba(255,255,255,0.06)",
+            }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+                <Users size={15} color={total > 0 ? "#22c55e" : "#4b5563"} />
+                <span style={{ fontSize: "0.7rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.07em", color: "#4b5563" }}>
+                  En ligne
+                </span>
+              </div>
+              <div style={{ fontSize: "2.4rem", fontWeight: 900, color: total > 0 ? "#22c55e" : "#6b7280", lineHeight: 1 }}>
+                {sessLoading ? "—" : total}
+              </div>
+              <div style={{ fontSize: "0.73rem", color: "#4b5563", marginTop: 6 }}>
+                {sessLoading
+                  ? "Chargement…"
+                  : total === 0
+                    ? "Aucune lecture en cours"
+                    : `membre${total > 1 ? "s" : ""} en train de regarder`
+                }
+              </div>
+            </div>
+
+            {/* Détail lecture / pause */}
+            <div style={{
+              padding: "20px 22px", borderRadius: 14,
+              background: "rgba(255,255,255,0.02)",
+              border: "1px solid rgba(255,255,255,0.06)",
+            }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+                <MonitorPlay size={15} color="#6b7280" />
+                <span style={{ fontSize: "0.7rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.07em", color: "#4b5563" }}>
+                  Hors ligne
+                </span>
+              </div>
+              <div style={{ fontSize: "2.4rem", fontWeight: 900, color: "#6b7280", lineHeight: 1 }}>
+                {sessLoading ? "—" : (isOnline ? "∞" : "—")}
+              </div>
+              <div style={{ fontSize: "0.73rem", color: "#4b5563", marginTop: 6 }}>
+                {sessLoading
+                  ? "Chargement…"
+                  : !isOnline
+                    ? "Serveur inaccessible"
+                    : playing > 0 || paused > 0
+                      ? `${playing} en lecture · ${paused} en pause`
+                      : "Tous les membres sont libres"
+                }
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* ─── SERVICES ─── */}
       <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 32 }}>

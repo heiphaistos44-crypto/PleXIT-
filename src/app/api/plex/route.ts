@@ -140,7 +140,12 @@ function filterItems(
   search:   string,
 ): MappedItem[] {
   return items.filter(item => {
-    if (category !== "all" && item.category !== category) return false;
+    // "Exclusivités" = contenu bien noté (≥7.5), hors musique
+    if (category === "exclusive") {
+      if ((item.rating ?? 0) < 7.5 || item.category === "music") return false;
+    } else if (category !== "all" && item.category !== category) {
+      return false;
+    }
     if (search) {
       const q = search.toLowerCase();
       return item.title.toLowerCase().includes(q);
@@ -199,7 +204,7 @@ export async function GET(req: NextRequest) {
       show:      all.filter(i => i.category === "show").length,
       anime:     all.filter(i => i.category === "anime").length,
       music:     all.filter(i => i.category === "music").length,
-      exclusive: all.filter(i => i.category === "exclusive").length,
+      exclusive: all.filter(i => (i.rating ?? 0) >= 7.5 && i.category !== "music").length,
     };
 
     return NextResponse.json({

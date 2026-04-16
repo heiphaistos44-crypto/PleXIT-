@@ -58,6 +58,14 @@ interface RequestBody {
   priorite?: "haute" | "moyenne" | "basse";
   commentaire?: string;
   verifieExistant?: boolean;
+  force?: boolean;
+}
+
+function normalizeTitle(s: string): string {
+  return s.toLowerCase()
+    .normalize("NFD").replace(/[\u0300-\u036f]/g, "")  // enlève accents
+    .replace(/[^a-z0-9\s]/g, "")                         // enlève ponctuation
+    .replace(/\s+/g, " ").trim();
 }
 
 const TYPE_LABELS: Record<string, string> = {
@@ -136,6 +144,45 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ message: "Le pseudo Discord est requis" }, { status: 400 });
   }
 
+  // ── Anti-spam & anti-doublon ────────────────────────────────
+  if (!body.force) {
+    const allRequests = await readRequests();
+
+    // Vérification anti-spam : max 3 demandes pending par pseudo
+    const pseudoLower = body.pseudoDiscord.trim().toLowerCase();
+    const pendingCount = allRequests.filter(
+      r => r.status === "pending" && r.pseudo.toLowerCase() === pseudoLower
+    ).length;
+    if (pendingCount >= 3) {
+      return NextResponse.json(
+        { message: "Tu as déjà 3 demandes en attente. Attends qu'elles soient traitées avant d'en ajouter une nouvelle.", code: "SPAM_LIMIT" },
+        { status: 429 }
+      );
+    }
+
+    // Vérification anti-doublon : titre normalisé dans demandes non-rejetées
+    const normalizedNew = normalizeTitle(body.titre.trim());
+    const existing = allRequests.find(
+      r => r.status !== "rejected" && normalizeTitle(r.titre) === normalizedNew
+    );
+    if (existing) {
+      return NextResponse.json(
+        {
+          message: "Une demande similaire existe déjà.",
+          code: "DUPLICATE",
+          existing: {
+            id:          existing.id,
+            titre:       existing.titre,
+            status:      existing.status,
+            pseudo:      existing.pseudo,
+            requestedAt: existing.requestedAt,
+          },
+        },
+        { status: 409 }
+      );
+    }
+  }
+
   const priorite  = body.priorite || "moyenne";
   const typeLabel = TYPE_LABELS[body.type] || body.type;
   const isSeries  = ["serie", "anime", "dessin_anime"].includes(body.type);
@@ -145,59 +192,72 @@ export async function POST(req: NextRequest) {
   const requestId = crypto.randomUUID();
   const shortId   = requestId.split("-")[0].toUpperCase();
 
-  // ── Description richement formatée ────────────────────────────
-  const descLines: string[] = [];
+  // ── Champs inline pour l'embed ────────────────────────────────
+  type EmbedField = { name: string; value: string; inline?: boolean };
+  const fields: EmbedField[] = [];
 
-  // Type + priorité
-  descLines.push(
-    `**${typeLabel}** · Priorité **${priorite.charAt(0).toUpperCase() + priorite.slice(1)}** ${PRIORITE_EMOJIS[priorite]}`
-  );
-
-  // Année + genres
-  const metaParts: string[] = [];
-  if (body.annee)                        metaParts.push(`📅 ${body.annee}`);
-  if (body.genres && body.genres.length) metaParts.push(`🎭 ${body.genres.join(", ")}`);
-  if (metaParts.length)                  descLines.push(metaParts.join("  ·  "));
-
-  // Langue + qualité
+  // Ligne 1 : Année | Langue | Qualité (3 colonnes inline)
   if (hasQuality) {
     const langLabel = LANGUE_LABELS[body.langue  || ""] || body.langue  || "Non précisée";
     const qualLabel = QUALITE_LABELS[body.qualite || ""] || body.qualite || "Non précisée";
-    descLines.push(`🌐 ${langLabel}  ·  🎞️ ${qualLabel}`);
+    fields.push({ name: "📅 Année",    value: body.annee || "—",  inline: true });
+    fields.push({ name: "🌐 Langue",   value: langLabel,           inline: true });
+    fields.push({ name: "🎞️ Qualité",  value: qualLabel,           inline: true });
+  } else {
+    // Musique : année seule
+    if (body.annee) fields.push({ name: "📅 Année", value: body.annee, inline: true });
   }
 
-  // Saisons / épisodes
+  // Genres (pleine largeur)
+  if (body.genres && body.genres.length) {
+    fields.push({ name: "🎭 Genres", value: body.genres.join(", "), inline: false });
+  }
+
+  // Saisons / épisodes / diffusion (séries uniquement)
   if (isSeries) {
-    const seriesParts: string[] = [];
-    if (body.saisons)  seriesParts.push(`🗂️ Saisons : ${body.saisons}`);
-    if (body.episodes) seriesParts.push(`📝 Épisodes : ${body.episodes}`);
-    if (body.enCours)  seriesParts.push("📡 En cours de diffusion");
-    if (seriesParts.length) descLines.push(seriesParts.join("  ·  "));
+    if (body.saisons)  fields.push({ name: "🗂️ Saisons",   value: body.saisons,                    inline: true });
+    if (body.episodes) fields.push({ name: "📝 Épisodes",  value: body.episodes,                    inline: true });
+    if (body.enCours)  fields.push({ name: "📡 Diffusion", value: "En cours",                       inline: true });
   }
 
   // Vérifié sur Plex
-  descLines.push(
-    `\n✅ Vérifié sur Plex : **${body.verifieExistant ? "Oui — non disponible" : "Non vérifié"}**`
-  );
+  fields.push({
+    name:   "✅ Sur Plex",
+    value:  body.verifieExistant ? "Vérifié — non dispo" : "Non vérifié",
+    inline: true,
+  });
 
   // Lien externe
   if (body.lienType && body.lienUrl) {
     const src = LIEN_LABELS[body.lienType] || body.lienType;
-    descLines.push(`🔗 [Voir la fiche sur ${src}](${body.lienUrl})`);
+    fields.push({ name: "🔗 Référence", value: `[Voir sur ${src}](${body.lienUrl})`, inline: true });
   }
 
-  // Commentaire
+  // Commentaire (pleine largeur, en dernier)
   if (body.commentaire) {
-    descLines.push(`\n💬 *${body.commentaire.substring(0, 300)}*`);
+    fields.push({ name: "💬 Commentaire", value: `*${body.commentaire.substring(0, 300)}*`, inline: false });
   }
-
-  const description = descLines.join("\n");
 
   // ── Embed Discord ──────────────────────────────────────────────
+  const prioriteLabel = priorite.charAt(0).toUpperCase() + priorite.slice(1);
+
+  // Miniature type-spécifique (emoji rendu en URL Twemoji)
+  const TYPE_THUMBS: Record<string, string> = {
+    film:         "https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/1f3ac.png", // 🎬
+    serie:        "https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/1f4fa.png", // 📺
+    anime:        "https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/26e9.png",  // ⛩️
+    dessin_anime: "https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/1f3a8.png", // 🎨
+    musique:      "https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/1f3b5.png", // 🎵
+  };
+
   const embed = {
-    title: `${PRIORITE_EMOJIS[priorite]} ${body.titre}${body.annee ? ` (${body.annee})` : ""}`,
-    description,
+    author: {
+      name: `${typeLabel} · Priorité ${prioriteLabel} ${PRIORITE_EMOJIS[priorite]}`,
+    },
+    title: `${body.titre}${body.annee ? ` (${body.annee})` : ""}`,
     color: TYPE_COLORS[body.type] ?? PRIORITE_COLORS[priorite],
+    thumbnail: { url: TYPE_THUMBS[body.type] ?? TYPE_THUMBS.film },
+    fields,
     footer: {
       text: `Demandé par ${body.pseudoDiscord} · PleXIT · Réf. #${shortId}`,
     },
