@@ -5,7 +5,7 @@ import Link from "next/link";
 import {
   Film, Tv, Music, Clock, CheckCircle2, XCircle,
   RefreshCw, Filter, ChevronRight, Clapperboard,
-  Star, Calendar, Trash2, Check, X,
+  Star, Calendar,
 } from "lucide-react";
 import PushSubscribe from "@/components/PushSubscribe";
 
@@ -71,48 +71,12 @@ const STATUS_CONFIG: Record<string, { label: string; color: string; icon: React.
 // ─── Carte de demande ─────────────────────────────────────────
 function RequestCard({
   req,
-  onStatusChange,
-  onDelete,
 }: {
-  req:            HistoriqueRequest;
-  onStatusChange: (id: string, status: "pending" | "added" | "rejected") => void;
-  onDelete:       (id: string) => void;
+  req: HistoriqueRequest;
 }) {
-  const [confirmDel, setConfirmDel] = useState(false);
-  const [updatingStatus, setUpdatingStatus] = useState<string | null>(null);
-
   const typeColor  = TYPE_COLORS[req.type]  ?? "#9ca3af";
   const statConf   = STATUS_CONFIG[req.status] ?? STATUS_CONFIG.pending;
   const prioConf   = PRIORITE_LABELS[req.priorite] ?? PRIORITE_LABELS.moyenne;
-
-  const handleStatus = async (newStatus: "pending" | "added" | "rejected") => {
-    setUpdatingStatus(newStatus);
-    try {
-      const res = await fetch(`/api/historique/${req.id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status: newStatus }),
-      });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      onStatusChange(req.id, newStatus);
-    } catch (err) {
-      console.error("Erreur mise à jour statut:", err);
-    } finally {
-      setUpdatingStatus(null);
-    }
-  };
-
-  const handleDelete = async () => {
-    if (!confirmDel) { setConfirmDel(true); return; }
-    try {
-      const res = await fetch(`/api/historique/${req.id}`, { method: "DELETE" });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      onDelete(req.id);
-    } catch (err) {
-      console.error("Erreur suppression:", err);
-      setConfirmDel(false);
-    }
-  };
 
   const dateReq = new Date(req.requestedAt).toLocaleDateString("fr-FR", { day: "2-digit", month: "short", year: "numeric" });
   const dateAdd = req.addedAt
@@ -211,57 +175,7 @@ function RequestCard({
           </div>
         )}
 
-        {/* Actions */}
-        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
-          {req.status !== "added" && (
-            <button onClick={() => handleStatus("added")} disabled={!!updatingStatus} style={{
-              display: "flex", alignItems: "center", gap: 5,
-              padding: "5px 10px", borderRadius: 8, cursor: "pointer",
-              background: "rgba(34,197,94,0.08)", border: "1px solid rgba(34,197,94,0.2)",
-              color: "#22c55e", fontSize: "0.72rem", fontWeight: 600,
-              opacity: updatingStatus ? 0.5 : 1,
-            }}>
-              <Check size={11} /> Marquer ajouté
-            </button>
-          )}
-          {req.status !== "rejected" && (
-            <button onClick={() => handleStatus("rejected")} disabled={!!updatingStatus} style={{
-              display: "flex", alignItems: "center", gap: 5,
-              padding: "5px 10px", borderRadius: 8, cursor: "pointer",
-              background: "rgba(239,68,68,0.06)", border: "1px solid rgba(239,68,68,0.15)",
-              color: "#ef4444", fontSize: "0.72rem", fontWeight: 600,
-              opacity: updatingStatus ? 0.5 : 1,
-            }}>
-              <X size={11} /> Non retenu
-            </button>
-          )}
-          {req.status !== "pending" && (
-            <button onClick={() => handleStatus("pending")} disabled={!!updatingStatus} style={{
-              display: "flex", alignItems: "center", gap: 5,
-              padding: "5px 10px", borderRadius: 8, cursor: "pointer",
-              background: "rgba(245,158,11,0.06)", border: "1px solid rgba(245,158,11,0.15)",
-              color: "#f59e0b", fontSize: "0.72rem", fontWeight: 600,
-              opacity: updatingStatus ? 0.5 : 1,
-            }}>
-              <Clock size={11} /> Remettre en attente
-            </button>
-          )}
-          <button
-            onClick={handleDelete}
-            style={{
-              display: "flex", alignItems: "center", gap: 5,
-              padding: "5px 10px", borderRadius: 8, cursor: "pointer",
-              background: confirmDel ? "rgba(239,68,68,0.12)" : "transparent",
-              border: `1px solid ${confirmDel ? "rgba(239,68,68,0.3)" : "rgba(255,255,255,0.06)"}`,
-              color: confirmDel ? "#ef4444" : "#374151", fontSize: "0.72rem", fontWeight: 600,
-              marginLeft: "auto",
-            }}
-            title={confirmDel ? "Cliquer à nouveau pour confirmer" : "Supprimer"}
-            onBlur={() => setConfirmDel(false)}
-          >
-            <Trash2 size={11} /> {confirmDel ? "Confirmer ?" : ""}
-          </button>
-        </div>
+        {/* Pas d'actions de modification côté public — voir /admin pour la gestion */}
       </div>
     </div>
   );
@@ -274,6 +188,7 @@ export default function HistoriquePage() {
   const [filterStatus, setFilterStatus] = useState<FilterStatus>("all");
   const [filterType,   setFilterType]   = useState<FilterType>("all");
   const [search,       setSearch]       = useState("");
+  // Lecture seule côté public — pas de modification de statut ni suppression
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -291,14 +206,6 @@ export default function HistoriquePage() {
   }, []);
 
   useEffect(() => { fetchData(); }, [fetchData]);
-
-  const handleStatusChange = (id: string, status: "pending" | "added" | "rejected") => {
-    setRequests(prev => prev.map(r => r.id === id ? { ...r, status } : r));
-  };
-
-  const handleDelete = (id: string) => {
-    setRequests(prev => prev.filter(r => r.id !== id));
-  };
 
   // Filtrage
   const filtered = requests.filter(r => {
@@ -425,7 +332,6 @@ export default function HistoriquePage() {
         border: "1px solid rgba(255,255,255,0.04)",
       }}>
         💡 Les statuts se mettent à jour automatiquement si le titre est détecté dans la bibliothèque Plex.
-        Les boutons d&apos;action sont visibles à tous les membres (plateforme privée).
       </div>
 
       {/* ─── LISTE ─── */}
@@ -472,8 +378,6 @@ export default function HistoriquePage() {
               <RequestCard
                 key={req.id}
                 req={req}
-                onStatusChange={handleStatusChange}
-                onDelete={handleDelete}
               />
             ))}
           </div>

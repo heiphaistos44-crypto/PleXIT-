@@ -1,18 +1,5 @@
 import { NextResponse } from "next/server";
-import { promises as fs } from "fs";
-import path from "path";
-import type { StoredRequest } from "@/app/api/request/route";
-
-const DATA_PATH = path.join(process.cwd(), "data", "requests.json");
-
-async function readRequests(): Promise<StoredRequest[]> {
-  try {
-    const raw = await fs.readFile(DATA_PATH, "utf-8");
-    return JSON.parse(raw) as StoredRequest[];
-  } catch {
-    return [];
-  }
-}
+import { readRequests, writeRequests } from "@/lib/db";
 
 // Normalise une chaîne pour la comparaison fuzzy (minuscules, sans accents, sans ponctuation)
 function normalize(s: string): string {
@@ -84,6 +71,15 @@ export async function GET() {
     }
     return req;
   });
+
+  // ── Persistance des auto-détections Plex ─────────────────────
+  // Si des demandes "pending" ont été détectées comme "added" dans Plex,
+  // on sauvegarde ce changement pour éviter l'incohérence entre API et fichier
+  const autoAdded = enriched.filter((r, i) => r.status === "added" && requests[i].status !== "added");
+  if (autoAdded.length > 0) {
+    const updated = requests.map((_req, i) => enriched[i]);
+    await writeRequests(updated).catch(console.error);
+  }
 
   return NextResponse.json(
     { requests: enriched, total: enriched.length },

@@ -87,7 +87,7 @@ export default function Navbar() {
             Discord
           </a>
           <a
-            href={process.env.NEXT_PUBLIC_PLEX_URL || "https://watch.plex.tv/fr/me"}
+            href="https://app.plex.tv"
             target="_blank"
             rel="noopener noreferrer"
             style={{

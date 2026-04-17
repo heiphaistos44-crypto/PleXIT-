@@ -52,9 +52,6 @@ export async function GET() {
         stateRaw === "paused" ? "paused" :
         stateRaw === "buffering" ? "buffering" : "playing";
 
-      const user = (m.User as Record<string, unknown> | undefined);
-      const userName = typeof user?.title === "string" ? user.title : "Utilisateur";
-
       const session = (m.Session as Record<string, unknown> | undefined);
       const sessionId = typeof session?.id === "string" ? session.id :
                         (typeof m.sessionKey === "string" ? m.sessionKey : String(Math.random()));
@@ -65,7 +62,7 @@ export async function GET() {
 
       return {
         sessionId,
-        user:        userName,
+        user:        "Membre", // masqué pour confidentialité (userName non exposé via l'API)
         title:       typeof m.title === "string" ? m.title : "Inconnu",
         grandparent: typeof m.grandparentTitle === "string" ? m.grandparentTitle : undefined,
         type:        (m.type === "episode" ? "episode" : m.type === "track" ? "track" : "movie") as PlexSession["type"],

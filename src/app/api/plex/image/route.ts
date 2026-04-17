@@ -5,16 +5,25 @@ const imageCache = new Map<string, { buffer: ArrayBuffer; contentType: string; t
 const IMAGE_CACHE_TTL = 24 * 60 * 60 * 1000; // 24h
 
 export async function GET(req: NextRequest) {
-  const url = req.nextUrl.searchParams.get("url");
+  const rawUrl = req.nextUrl.searchParams.get("url") ?? "";
 
-  if (!url) {
+  if (!rawUrl) {
     return NextResponse.json({ error: "Missing url" }, { status: 400 });
   }
 
+  // Validation du schéma HTTP/HTTPS
+  if (!rawUrl.startsWith("http://") && !rawUrl.startsWith("https://")) {
+    return NextResponse.json({ error: "URL invalide" }, { status: 400 });
+  }
+
+  // Blocage SSRF : PLEX_URL obligatoire, l'URL doit en être un préfixe strict
   const plexUrl = process.env.PLEX_URL?.replace(/\/$/, "");
-  if (plexUrl && !url.startsWith(plexUrl)) {
+  if (!plexUrl || !rawUrl.startsWith(plexUrl)) {
     return NextResponse.json({ error: "URL non autorisée" }, { status: 403 });
   }
+
+  // Alias pour la suite (ancienne variable `url`)
+  const url = rawUrl;
 
   // Vérifie le cache mémoire serveur
   const cached = imageCache.get(url);

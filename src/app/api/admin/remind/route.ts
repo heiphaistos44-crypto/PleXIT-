@@ -1,13 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { promises as fs } from "fs";
-import path from "path";
-
-interface StoredRequest {
-  id: string; type: string; titre: string; annee?: string;
-  pseudo: string; priorite: string; status: string; requestedAt: string;
-}
-
-const DATA_PATH = path.join(process.cwd(), "data", "requests.json");
+import { readRequests } from "@/lib/db";
+import type { StoredRequest } from "@/lib/db";
 
 export async function POST(req: NextRequest) {
   try {
@@ -19,8 +12,7 @@ export async function POST(req: NextRequest) {
     const webhookUrl = process.env.DISCORD_WEBHOOK_URL;
     if (!webhookUrl) return NextResponse.json({ message: "Webhook non configuré" }, { status: 500 });
 
-    const raw = await fs.readFile(DATA_PATH, "utf-8").catch(() => "[]");
-    const requests: StoredRequest[] = JSON.parse(raw);
+    const requests: StoredRequest[] = await readRequests();
     const pending = requests.filter(r => r.status === "pending");
 
     if (pending.length === 0) {

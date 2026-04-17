@@ -1,45 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { promises as fs } from "fs";
-import path from "path";
 import crypto from "crypto";
+import { readRequests, writeRequests } from "@/lib/db";
+import type { StoredRequest } from "@/types";
 
-// ─── Helpers fichier JSON ──────────────────────────────────────
-const DATA_PATH = path.join(process.cwd(), "data", "requests.json");
-
-export interface StoredRequest {
-  id:             string;
-  type:           string;
-  titre:          string;
-  annee?:         string;
-  genres?:        string[];
-  langue?:        string;
-  qualite?:       string;
-  saisons?:       string;
-  pseudo:         string;
-  discordUserId?: string; // ID numérique Discord pour les mentions
-  lienType?:      string;
-  lienUrl?:       string;
-  commentaire?:   string;
-  priorite:       string;
-  requestedAt:    string; // ISO
-  status:         "pending" | "added" | "rejected";
-  addedAt?:       string; // ISO, si status === "added"
-  note?:          string; // note de l'admin
-}
-
-async function readRequests(): Promise<StoredRequest[]> {
-  try {
-    const raw = await fs.readFile(DATA_PATH, "utf-8");
-    return JSON.parse(raw) as StoredRequest[];
-  } catch {
-    return [];
-  }
-}
-
-async function writeRequests(list: StoredRequest[]): Promise<void> {
-  await fs.mkdir(path.dirname(DATA_PATH), { recursive: true });
-  await fs.writeFile(DATA_PATH, JSON.stringify(list, null, 2), "utf-8");
-}
+// Re-export pour compatibilité avec les anciens imports
+export type { StoredRequest };
 
 interface RequestBody {
   type: "film" | "serie" | "anime" | "dessin_anime" | "musique";
@@ -60,6 +25,9 @@ interface RequestBody {
   verifieExistant?: boolean;
   force?: boolean;
 }
+
+// ─── Rate limiter par IP ───────────────────────────────────────
+const ipRateLimit = new Map<string, { count: number; resetAt: number }>();
 
 function normalizeTitle(s: string): string {
   return s.toLowerCase()
@@ -142,6 +110,46 @@ export async function POST(req: NextRequest) {
   }
   if (!body.pseudoDiscord?.trim()) {
     return NextResponse.json({ message: "Le pseudo Discord est requis" }, { status: 400 });
+  }
+
+  // ── Validations de longueur et de format ───────────────────
+  if (body.titre.trim().length > 200) {
+    return NextResponse.json({ message: "Titre trop long (max 200 caractères)" }, { status: 400 });
+  }
+  if ((body.pseudoDiscord?.length ?? 0) > 100) {
+    return NextResponse.json({ message: "Pseudo trop long" }, { status: 400 });
+  }
+  if ((body.commentaire?.length ?? 0) > 1000) {
+    return NextResponse.json({ message: "Commentaire trop long (max 1000 caractères)" }, { status: 400 });
+  }
+
+  const VALID_TYPES = ["film", "serie", "anime", "dessin_anime", "musique"] as const;
+  if (!VALID_TYPES.includes(body.type as typeof VALID_TYPES[number])) {
+    return NextResponse.json({ message: "Type invalide" }, { status: 400 });
+  }
+
+  const VALID_PRIOS = ["haute", "moyenne", "basse"];
+  if (body.priorite && !VALID_PRIOS.includes(body.priorite)) {
+    return NextResponse.json({ message: "Priorité invalide" }, { status: 400 });
+  }
+
+  if (body.discordUserId && !/^\d{17,20}$/.test(body.discordUserId.trim())) {
+    return NextResponse.json({ message: "ID Discord invalide (doit être un nombre à 17-20 chiffres)" }, { status: 400 });
+  }
+
+  if (body.lienUrl && !body.lienUrl.startsWith("https://")) {
+    return NextResponse.json({ message: "L'URL du lien doit commencer par https://" }, { status: 400 });
+  }
+
+  // ── Rate limiter par IP : max 5 requêtes par 10 minutes ────
+  const ip = req.headers.get("x-forwarded-for")?.split(",")[0].trim() ?? "unknown";
+  const now = Date.now();
+  const rl = ipRateLimit.get(ip) ?? { count: 0, resetAt: now + 10 * 60 * 1000 };
+  if (now > rl.resetAt) { rl.count = 0; rl.resetAt = now + 10 * 60 * 1000; }
+  rl.count++;
+  ipRateLimit.set(ip, rl);
+  if (rl.count > 5) {
+    return NextResponse.json({ message: "Trop de requêtes. Réessaie dans quelques minutes." }, { status: 429 });
   }
 
   // ── Anti-spam & anti-doublon ────────────────────────────────

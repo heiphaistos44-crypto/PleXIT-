@@ -112,7 +112,10 @@ function AdminCard({
     if (!confirmDel) { setConfirmDel(true); return; }
     setDeleting(true);
     try {
-      const res = await fetch(`/api/historique/${req.id}`, { method: "DELETE" });
+      const res = await fetch(`/api/historique/${req.id}`, {
+        method: "DELETE",
+        headers: { "x-admin-pin": pin },
+      });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       onUpdate(req.id, req.status, "__deleted__");
     } catch (err) {
