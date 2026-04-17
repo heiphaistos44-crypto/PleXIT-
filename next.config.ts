@@ -1,19 +1,22 @@
 import type { NextConfig } from "next";
 
+// Extrait le hostname depuis PLEX_URL (évite une variable env supplémentaire)
+function plexHostname(): string {
+  try {
+    const raw = process.env.PLEX_URL;
+    if (raw) return new URL(raw).hostname;
+  } catch {}
+  return "localhost";
+}
+
+const PLEX_HOST = plexHostname();
+
 const nextConfig: NextConfig = {
   images: {
     remotePatterns: [
-      {
-        protocol: "http",
-        hostname: process.env.PLEX_HOSTNAME ?? "192.168.1.1",
-        port: "32400",
-        pathname: "/library/**",
-      },
-      {
-        protocol: "https",
-        hostname: process.env.PLEX_HOSTNAME ?? "192.168.1.1",
-        pathname: "/library/**",
-      },
+      { protocol: "http",  hostname: PLEX_HOST, port: "32400", pathname: "/library/**" },
+      { protocol: "http",  hostname: PLEX_HOST, pathname: "/library/**" },
+      { protocol: "https", hostname: PLEX_HOST, pathname: "/library/**" },
     ],
   },
   async headers() {

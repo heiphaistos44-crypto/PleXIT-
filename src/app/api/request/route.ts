@@ -274,9 +274,10 @@ export async function POST(req: NextRequest) {
 
   try {
     const discordRes = await fetch(webhookUrl, {
-      method: "POST",
+      method:  "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
+      signal:  AbortSignal.timeout(5000),
+      body:    JSON.stringify({
         content: `📬 **${body.pseudoDiscord}** demande : **${body.titre}** ${PRIORITE_EMOJIS[priorite]}`,
         embeds: [embed],
         username: "PleXIT",
