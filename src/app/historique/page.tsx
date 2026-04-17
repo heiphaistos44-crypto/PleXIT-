@@ -23,12 +23,12 @@ interface HistoriqueRequest {
   commentaire?: string;
   priorite:    string;
   requestedAt: string;
-  status:      "pending" | "added" | "rejected";
+  status:      "pending" | "added" | "rejected" | "not_found";
   addedAt?:    string;
   note?:       string;
 }
 
-type FilterStatus = "all" | "pending" | "added" | "rejected";
+type FilterStatus = "all" | "pending" | "added" | "rejected" | "not_found";
 type FilterType   = "all" | "film" | "serie" | "anime" | "dessin_anime" | "musique";
 
 // ─── Config ───────────────────────────────────────────────────
@@ -63,9 +63,10 @@ const PRIORITE_LABELS: Record<string, { label: string; color: string; emoji: str
 };
 
 const STATUS_CONFIG: Record<string, { label: string; color: string; icon: React.ReactNode }> = {
-  pending:  { label: "En attente",  color: "#f59e0b", icon: <Clock size={13} />         },
-  added:    { label: "Ajouté",      color: "#22c55e", icon: <CheckCircle2 size={13} />   },
-  rejected: { label: "Non retenu",  color: "#ef4444", icon: <XCircle size={13} />       },
+  pending:   { label: "En attente",  color: "#f59e0b", icon: <Clock size={13} />         },
+  added:     { label: "Ajouté",      color: "#22c55e", icon: <CheckCircle2 size={13} />   },
+  rejected:  { label: "Non retenu",  color: "#ef4444", icon: <XCircle size={13} />       },
+  not_found: { label: "Non trouvé",  color: "#3b82f6", icon: <span style={{ fontSize: 13 }}>🔍</span> },
 };
 
 // ─── Carte de demande ─────────────────────────────────────────
@@ -87,7 +88,7 @@ function RequestCard({
     <div style={{
       borderRadius: 16, overflow: "hidden",
       background: "rgba(255,255,255,0.02)",
-      border: `1px solid ${req.status === "added" ? "rgba(34,197,94,0.2)" : req.status === "rejected" ? "rgba(239,68,68,0.15)" : "rgba(255,255,255,0.07)"}`,
+      border: `1px solid ${req.status === "added" ? "rgba(34,197,94,0.2)" : req.status === "rejected" ? "rgba(239,68,68,0.15)" : req.status === "not_found" ? "rgba(59,130,246,0.15)" : "rgba(255,255,255,0.07)"}`,
       transition: "border-color 0.2s",
       position: "relative",
     }}>
@@ -220,10 +221,11 @@ export default function HistoriquePage() {
 
   // Compteurs
   const countByStatus = {
-    all:      requests.length,
-    pending:  requests.filter(r => r.status === "pending").length,
-    added:    requests.filter(r => r.status === "added").length,
-    rejected: requests.filter(r => r.status === "rejected").length,
+    all:       requests.length,
+    pending:   requests.filter(r => r.status === "pending").length,
+    added:     requests.filter(r => r.status === "added").length,
+    rejected:  requests.filter(r => r.status === "rejected").length,
+    not_found: requests.filter(r => r.status === "not_found").length,
   };
 
   return (
@@ -242,6 +244,11 @@ export default function HistoriquePage() {
               <span className="badge badge-gold">{countByStatus.pending} En attente</span>
               <span className="badge badge-green">{countByStatus.added} Ajoutés</span>
               <span className="badge badge-red">{countByStatus.rejected} Non retenus</span>
+              {countByStatus.not_found > 0 && (
+                <span className="badge" style={{ background: "rgba(59,130,246,0.1)", border: "1px solid rgba(59,130,246,0.25)", color: "#3b82f6" }}>
+                  🔍 {countByStatus.not_found} Non trouvé{countByStatus.not_found > 1 ? "s" : ""}
+                </span>
+              )}
             </div>
           </div>
           <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
@@ -276,12 +283,13 @@ export default function HistoriquePage() {
 
         {/* Filtre statut */}
         <div style={{ display: "flex", gap: 6 }}>
-          {(["all","pending","added","rejected"] as FilterStatus[]).map(s => {
+          {(["all","pending","added","rejected","not_found"] as FilterStatus[]).map(s => {
             const ALL_STATUS: Record<string, { label: string; color: string }> = {
-              all:      { label: "Tout",        color: "#9ca3af" },
-              pending:  { label: "En attente",  color: "#f59e0b" },
-              added:    { label: "Ajouté",      color: "#22c55e" },
-              rejected: { label: "Non retenu",  color: "#ef4444" },
+              all:       { label: "Tout",        color: "#9ca3af" },
+              pending:   { label: "En attente",  color: "#f59e0b" },
+              added:     { label: "Ajouté",      color: "#22c55e" },
+              rejected:  { label: "Non retenu",  color: "#ef4444" },
+              not_found: { label: "Non trouvé",  color: "#3b82f6" },
             };
             const conf = ALL_STATUS[s];
             return (

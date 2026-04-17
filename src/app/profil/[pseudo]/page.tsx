@@ -19,7 +19,7 @@ interface HistoriqueRequest {
   priorite:     string;
   pseudo:       string;
   requestedAt:  string;
-  status:       "pending" | "added" | "rejected";
+  status:       "pending" | "added" | "rejected" | "not_found";
   addedAt?:     string;
   note?:        string;
   commentaire?: string;
@@ -47,9 +47,10 @@ const TYPE_COLORS: Record<string, string> = {
   musique:      "#22c55e",
 };
 const STATUS_CONFIG: Record<string, { label: string; color: string; icon: React.ReactNode }> = {
-  pending:  { label: "En attente", color: "#f59e0b", icon: <Clock size={12} />        },
-  added:    { label: "Ajouté",     color: "#22c55e", icon: <CheckCircle2 size={12} /> },
-  rejected: { label: "Non retenu", color: "#ef4444", icon: <XCircle size={12} />      },
+  pending:   { label: "En attente", color: "#f59e0b", icon: <Clock size={12} />        },
+  added:     { label: "Ajouté",     color: "#22c55e", icon: <CheckCircle2 size={12} /> },
+  rejected:  { label: "Non retenu", color: "#ef4444", icon: <XCircle size={12} />      },
+  not_found: { label: "Non trouvé", color: "#3b82f6", icon: <span style={{ fontSize: 12 }}>🔍</span> },
 };
 const PRIO_EMOJI: Record<string, string> = { haute: "🔴", moyenne: "🟡", basse: "🟢" };
 
@@ -173,8 +174,9 @@ export default function ProfilPage() {
                 borderRadius: 14, overflow: "hidden", position: "relative",
                 background: "rgba(255,255,255,0.02)",
                 border: `1px solid ${
-                  req.status === "added"    ? "rgba(34,197,94,0.2)"  :
-                  req.status === "rejected" ? "rgba(239,68,68,0.15)" :
+                  req.status === "added"     ? "rgba(34,197,94,0.2)"   :
+                  req.status === "rejected"  ? "rgba(239,68,68,0.15)"  :
+                  req.status === "not_found" ? "rgba(59,130,246,0.15)" :
                   "rgba(255,255,255,0.07)"
                 }`,
               }}>

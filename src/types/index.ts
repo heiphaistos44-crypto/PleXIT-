@@ -16,7 +16,7 @@ export interface StoredRequest {
   commentaire?:   string;
   priorite:       string;
   requestedAt:    string; // ISO
-  status:         "pending" | "added" | "rejected";
+  status:         "pending" | "added" | "rejected" | "not_found";
   addedAt?:       string; // ISO, si status === "added"
   note?:          string; // note de l'admin
 }

@@ -6,7 +6,7 @@ import {
   Shield, LogOut, RefreshCw, Film, Tv, Music,
   Clapperboard, Clock, CheckCircle2, XCircle,
   ChevronRight, Send, Trash2, X, Check, BarChart3,
-  Calendar, Star, Filter, Bell,
+  Calendar, Star, Filter, Bell, Search,
 } from "lucide-react";
 
 // ─── Types ────────────────────────────────────────────────────
@@ -23,7 +23,7 @@ interface AdminRequest {
   commentaire?: string;
   priorite:    string;
   requestedAt: string;
-  status:      "pending" | "added" | "rejected";
+  status:      "pending" | "added" | "rejected" | "not_found";
   addedAt?:    string;
   note?:       string;
 }
@@ -60,9 +60,10 @@ const PRIO_CONFIG: Record<string, { label: string; color: string; emoji: string 
 };
 
 const STATUS_CONFIG: Record<string, { label: string; color: string; icon: React.ReactNode }> = {
-  pending:  { label: "En attente",  color: "#f59e0b", icon: <Clock size={12} />       },
-  added:    { label: "Ajouté",      color: "#22c55e", icon: <CheckCircle2 size={12} /> },
-  rejected: { label: "Non retenu",  color: "#ef4444", icon: <XCircle size={12} />     },
+  pending:   { label: "En attente",  color: "#f59e0b", icon: <Clock size={12} />       },
+  added:     { label: "Ajouté",      color: "#22c55e", icon: <CheckCircle2 size={12} /> },
+  rejected:  { label: "Non retenu",  color: "#ef4444", icon: <XCircle size={12} />     },
+  not_found: { label: "Non trouvé",  color: "#3b82f6", icon: <Search size={12} />      },
 };
 
 // ─── Composant carte demande admin ────────────────────────────
@@ -73,7 +74,7 @@ function AdminCard({
 }: {
   req:      AdminRequest;
   pin:      string;
-  onUpdate: (id: string, status: "pending" | "added" | "rejected", note?: string) => void;
+  onUpdate: (id: string, status: "pending" | "added" | "rejected" | "not_found", note?: string) => void;
 }) {
   const [note,       setNote]       = useState(req.note ?? "");
   const [sending,    setSending]    = useState(false);
@@ -87,7 +88,7 @@ function AdminCard({
   const prioConf   = PRIO_CONFIG[req.priorite] ?? PRIO_CONFIG.moyenne;
   const shortId    = req.id.split("-")[0].toUpperCase();
 
-  const sendReply = async (status: "added" | "rejected" | "pending") => {
+  const sendReply = async (status: "added" | "rejected" | "pending" | "not_found") => {
     setSending(true);
     setFeedback(null);
     try {
@@ -99,7 +100,7 @@ function AdminCard({
       const data = await res.json();
       if (!res.ok) throw new Error(data.message ?? `HTTP ${res.status}`);
       setFeedback(data.discordError ? "✅ Statut sauvegardé (Discord injoignable)" : "✅ Envoyé sur Discord !");
-      onUpdate(req.id, status, note || undefined);
+      onUpdate(req.id, status as "pending" | "added" | "rejected" | "not_found", note || undefined);
     } catch (err: unknown) {
       setFeedback(`❌ ${err instanceof Error ? err.message : "Erreur"}`);
     } finally {
@@ -309,9 +310,24 @@ function AdminCard({
                 <Clock size={12} /> Remettre en attente
               </button>
             )}
+            {req.status !== "not_found" && (
+              <button
+                onClick={() => sendReply("not_found")}
+                disabled={sending}
+                style={{
+                  display: "flex", alignItems: "center", gap: 5,
+                  padding: "6px 12px", borderRadius: 8, cursor: sending ? "not-allowed" : "pointer",
+                  background: "rgba(59,130,246,0.07)", border: "1px solid rgba(59,130,246,0.18)",
+                  color: "#3b82f6", fontSize: "0.73rem", fontWeight: 700,
+                  opacity: sending ? 0.5 : 1,
+                }}
+              >
+                <Search size={12} /> Non trouvé
+              </button>
+            )}
             {/* Bouton juste envoyer note sans changer statut */}
             <button
-              onClick={() => sendReply(req.status as "added" | "rejected" | "pending")}
+              onClick={() => sendReply(req.status as "added" | "rejected" | "pending" | "not_found")}
               disabled={sending || !note.trim()}
               style={{
                 display: "flex", alignItems: "center", gap: 5,
@@ -412,10 +428,10 @@ function LoginScreen({ onLogin }: { onLogin: (pin: string) => void }) {
         <form onSubmit={handleSubmit}>
           <input
             type="password"
-            inputMode="numeric"
+            inputMode="text"
             value={pin}
             onChange={e => setPin(e.target.value)}
-            placeholder="••••"
+            placeholder="Mot de passe admin"
             autoFocus
             style={{
               width: "100%", boxSizing: "border-box",
@@ -467,7 +483,7 @@ function LoginScreen({ onLogin }: { onLogin: (pin: string) => void }) {
 function Dashboard({ pin, onLogout }: { pin: string; onLogout: () => void }) {
   const [requests,     setRequests]     = useState<AdminRequest[]>([]);
   const [loading,      setLoading]      = useState(true);
-  const [filterStatus, setFilterStatus] = useState<"all" | "pending" | "added" | "rejected">("all");
+  const [filterStatus, setFilterStatus] = useState<"all" | "pending" | "added" | "rejected" | "not_found">("all");
   const [filterType,   setFilterType]   = useState("all");
   const [search,       setSearch]       = useState("");
   const [remindState,  setRemindState]  = useState<"idle" | "loading" | "success" | "error">("idle");
@@ -514,7 +530,7 @@ function Dashboard({ pin, onLogout }: { pin: string; onLogout: () => void }) {
     }
   };
 
-  const handleUpdate = (id: string, status: "pending" | "added" | "rejected", note?: string) => {
+  const handleUpdate = (id: string, status: "pending" | "added" | "rejected" | "not_found", note?: string) => {
     if (note === "__deleted__") {
       setRequests(prev => prev.filter(r => r.id !== id));
       return;
@@ -538,10 +554,11 @@ function Dashboard({ pin, onLogout }: { pin: string; onLogout: () => void }) {
   });
 
   const counts = {
-    all:      requests.length,
-    pending:  requests.filter(r => r.status === "pending").length,
-    added:    requests.filter(r => r.status === "added").length,
-    rejected: requests.filter(r => r.status === "rejected").length,
+    all:       requests.length,
+    pending:   requests.filter(r => r.status === "pending").length,
+    added:     requests.filter(r => r.status === "added").length,
+    rejected:  requests.filter(r => r.status === "rejected").length,
+    not_found: requests.filter(r => r.status === "not_found").length,
   };
 
   return (
@@ -582,10 +599,11 @@ function Dashboard({ pin, onLogout }: { pin: string; onLogout: () => void }) {
             {/* Stats rapides */}
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
               {[
-                { key: "all",      label: "Total",       color: "#6b7280" },
-                { key: "pending",  label: "En attente",  color: "#f59e0b" },
-                { key: "added",    label: "Ajoutés",     color: "#22c55e" },
-                { key: "rejected", label: "Non retenus", color: "#ef4444" },
+                { key: "all",       label: "Total",        color: "#6b7280" },
+                { key: "pending",   label: "En attente",   color: "#f59e0b" },
+                { key: "added",     label: "Ajoutés",      color: "#22c55e" },
+                { key: "rejected",  label: "Non retenus",  color: "#ef4444" },
+                { key: "not_found", label: "Non trouvés",  color: "#3b82f6" },
               ].map(({ key, label, color }) => (
                 <button
                   key={key}

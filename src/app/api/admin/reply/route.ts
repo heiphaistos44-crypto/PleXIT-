@@ -8,15 +8,17 @@ const MAX_ATTEMPTS = 5;
 const LOCKOUT_MS   = 5 * 60 * 1000; // 5 minutes
 
 const STATUS_LABELS: Record<string, string> = {
-  added:    "✅ Ajouté à Plex",
-  rejected: "❌ Non retenu",
-  pending:  "🕐 Remis en attente",
+  added:     "✅ Ajouté à Plex",
+  rejected:  "❌ Non retenu",
+  pending:   "🕐 Remis en attente",
+  not_found: "🔍 Non trouvé",
 };
 
 const STATUS_COLORS: Record<string, number> = {
-  added:    0x22c55e,
-  rejected: 0xef4444,
-  pending:  0xf59e0b,
+  added:     0x22c55e,
+  rejected:  0xef4444,
+  pending:   0xf59e0b,
+  not_found: 0x3b82f6,
 };
 
 const TYPE_LABELS: Record<string, string> = {
@@ -30,7 +32,7 @@ const TYPE_LABELS: Record<string, string> = {
 interface ReplyBody {
   pin:       string;
   requestId: string;
-  status:    "added" | "rejected" | "pending";
+  status:    "added" | "rejected" | "pending" | "not_found";
   note?:     string;
 }
 
@@ -152,9 +154,10 @@ export async function POST(req: NextRequest) {
 
   // ── Notification push PWA ─────────────────────────────────
   const pushMessages: Record<string, { title: string; body: string }> = {
-    added:    { title: "✅ Ajouté à Plex !",    body: `"${request.titre}" est maintenant disponible.` },
-    rejected: { title: "❌ Demande non retenue", body: `"${request.titre}" n'a pas pu être ajouté.`    },
-    pending:  { title: "🕐 Remis en attente",   body: `"${request.titre}" est de nouveau en attente.`  },
+    added:     { title: "✅ Ajouté à Plex !",      body: `"${request.titre}" est maintenant disponible.`          },
+    rejected:  { title: "❌ Demande non retenue",   body: `"${request.titre}" n'a pas pu être ajouté.`             },
+    pending:   { title: "🕐 Remis en attente",     body: `"${request.titre}" est de nouveau en attente.`           },
+    not_found: { title: "🔍 Introuvable pour l'instant", body: `"${request.titre}" n'a pas été trouvé pour le moment.` },
   };
   const pushMsg = pushMessages[body.status];
   if (pushMsg) {

@@ -12,7 +12,7 @@ export async function PATCH(
   }
 
   const { id } = await params;
-  const body = await req.json() as { status?: "pending" | "added" | "rejected"; note?: string; pin?: string };
+  const body = await req.json() as { status?: "pending" | "added" | "rejected" | "not_found"; note?: string; pin?: string };
 
   // Vérification PIN obligatoire
   if (!body.pin || body.pin.trim() !== adminPin.trim()) {
