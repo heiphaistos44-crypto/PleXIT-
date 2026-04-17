@@ -765,34 +765,18 @@ function Dashboard({ pin, onLogout }: { pin: string; onLogout: () => void }) {
 }
 
 // ─── Page export default ───────────────────────────────────────
-interface AdminPageState {
-  pin:      string | null;
-  hydrated: boolean;
-}
-
 export default function AdminPage() {
-  const [state, setState] = useState<AdminPageState>({ pin: null, hydrated: false });
-
-  useEffect(() => {
-    // Lecture sessionStorage côté client uniquement — setState nécessaire ici (SSR guard)
-    const saved = sessionStorage.getItem("plexit_admin_pin");
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setState({ pin: saved ?? null, hydrated: true });
-  }, []);
+  const [pin, setPin] = useState<string | null>(null);
 
   const handleLogin = (p: string) => {
-    sessionStorage.setItem("plexit_admin_pin", p);
-    setState({ pin: p, hydrated: true });
+    setPin(p);
   };
 
   const handleLogout = () => {
-    sessionStorage.removeItem("plexit_admin_pin");
-    setState({ pin: null, hydrated: true });
+    setPin(null);
   };
 
-  if (!state.hydrated) return null;
+  if (!pin) return <LoginScreen onLogin={handleLogin} />;
 
-  if (!state.pin) return <LoginScreen onLogin={handleLogin} />;
-
-  return <Dashboard pin={state.pin} onLogout={handleLogout} />;
+  return <Dashboard pin={pin} onLogout={handleLogout} />;
 }

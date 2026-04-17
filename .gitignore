@@ -47,3 +47,6 @@ next-env.d.ts
 
 # Claude
 .claude/
+data/
+# Données locales — ne jamais committer
+data/*.json
