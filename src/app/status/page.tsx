@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
-import { RefreshCw, Shield, CheckCircle2, XCircle, AlertTriangle, Zap, Users, MonitorPlay } from "lucide-react";
+import { RefreshCw, CheckCircle2, XCircle, AlertTriangle, Zap, Users, MonitorPlay } from "lucide-react";
 
 // ─── Types ────────────────────────────────────────────────────
 interface StatusData {
@@ -88,140 +88,6 @@ function ServiceRow({
         <span style={{ fontSize: "0.78rem", fontWeight: 700, color }}>
           {online ? "En ligne" : "Hors ligne"}
         </span>
-      </div>
-    </div>
-  );
-}
-
-// ─── Panneau admin intégré ────────────────────────────────────
-function AdminPanel({ onUpdate }: { onUpdate: () => void }) {
-  const [open,        setOpen]        = useState(false);
-  const [pin,         setPin]         = useState("");
-  const [message,     setMessage]     = useState("");
-  const [maintenance, setMaintenance] = useState(false);
-  const [loading,     setLoading]     = useState(false);
-  const [feedback,    setFeedback]    = useState<string | null>(null);
-
-  const handleToggle = async (maint: boolean) => {
-    if (!pin.trim()) { setFeedback("❌ PIN requis"); return; }
-    setLoading(true);
-    setFeedback(null);
-    try {
-      const res = await fetch("/api/status", {
-        method:  "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body:    JSON.stringify({ pin, maintenance: maint, message: message || undefined }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.message ?? `HTTP ${res.status}`);
-      setFeedback(`✅ ${maint ? "Maintenance activée" : "Serveur remis en ligne"}`);
-      setMaintenance(maint);
-      onUpdate();
-    } catch (err: unknown) {
-      setFeedback(`❌ ${err instanceof Error ? err.message : "Erreur"}`);
-    } finally {
-      setLoading(false);
-      setTimeout(() => setFeedback(null), 4000);
-    }
-  };
-
-  if (!open) {
-    return (
-      <button
-        onClick={() => setOpen(true)}
-        style={{
-          display: "flex", alignItems: "center", gap: 6,
-          padding: "8px 14px", borderRadius: 9, cursor: "pointer",
-          background: "rgba(139,92,246,0.08)",
-          border: "1px solid rgba(139,92,246,0.2)",
-          color: "#8b5cf6", fontSize: "0.78rem", fontWeight: 600,
-        }}
-      >
-        <Shield size={13} /> Admin
-      </button>
-    );
-  }
-
-  return (
-    <div style={{
-      padding: "20px", borderRadius: 14,
-      background: "rgba(139,92,246,0.04)",
-      border: "1px solid rgba(139,92,246,0.15)",
-      marginTop: 24,
-    }}>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
-        <span style={{ fontWeight: 700, fontSize: "0.88rem", color: "#a78bfa", display: "flex", alignItems: "center", gap: 6 }}>
-          <Shield size={15} /> Contrôle admin
-        </span>
-        <button onClick={() => setOpen(false)} style={{ background: "none", border: "none", color: "#4b5563", cursor: "pointer", fontSize: "1rem" }}>✕</button>
-      </div>
-
-      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-        <input
-          type="password"
-          inputMode="text"
-          placeholder="PIN admin"
-          value={pin}
-          onChange={e => setPin(e.target.value)}
-          style={{
-            background: "rgba(255,255,255,0.04)",
-            border: "1px solid rgba(255,255,255,0.1)",
-            borderRadius: 8, padding: "8px 12px",
-            color: "#f9fafb", fontSize: "0.84rem",
-            outline: "none", fontFamily: "inherit",
-          }}
-        />
-        <textarea
-          placeholder="Message de maintenance (optionnel)"
-          value={message}
-          onChange={e => setMessage(e.target.value)}
-          rows={2}
-          style={{
-            background: "rgba(255,255,255,0.04)",
-            border: "1px solid rgba(255,255,255,0.1)",
-            borderRadius: 8, padding: "8px 12px",
-            color: "#f9fafb", fontSize: "0.82rem",
-            resize: "vertical", fontFamily: "inherit",
-            outline: "none",
-          }}
-        />
-
-        {feedback && (
-          <div style={{
-            fontSize: "0.76rem", padding: "6px 10px", borderRadius: 7,
-            background: feedback.startsWith("✅") ? "rgba(34,197,94,0.08)" : "rgba(239,68,68,0.08)",
-            color: feedback.startsWith("✅") ? "#22c55e" : "#ef4444",
-          }}>
-            {feedback}
-          </div>
-        )}
-
-        <div style={{ display: "flex", gap: 8 }}>
-          <button
-            onClick={() => handleToggle(true)}
-            disabled={loading || maintenance}
-            style={{
-              flex: 1, padding: "8px", borderRadius: 8, cursor: "pointer",
-              background: "rgba(245,158,11,0.1)", border: "1px solid rgba(245,158,11,0.25)",
-              color: "#f59e0b", fontSize: "0.78rem", fontWeight: 700,
-              opacity: (loading || maintenance) ? 0.4 : 1,
-            }}
-          >
-            ⚠️ Activer maintenance
-          </button>
-          <button
-            onClick={() => handleToggle(false)}
-            disabled={loading || !maintenance}
-            style={{
-              flex: 1, padding: "8px", borderRadius: 8, cursor: "pointer",
-              background: "rgba(34,197,94,0.1)", border: "1px solid rgba(34,197,94,0.25)",
-              color: "#22c55e", fontSize: "0.78rem", fontWeight: 700,
-              opacity: (loading || !maintenance) ? 0.4 : 1,
-            }}
-          >
-            ✅ Remettre en ligne
-          </button>
-        </div>
       </div>
     </div>
   );
@@ -483,11 +349,6 @@ export default function StatusPage() {
           <span style={{ color: "#22c55e", fontWeight: 600 }}>100% uptime (hors maintenances)</span>
           <span>Aujourd&apos;hui</span>
         </div>
-      </div>
-
-      {/* ─── ADMIN PANEL ─── */}
-      <div style={{ display: "flex", justifyContent: "flex-end" }}>
-        <AdminPanel onUpdate={fetchStatus} />
       </div>
 
       {/* ─── LIENS ─── */}

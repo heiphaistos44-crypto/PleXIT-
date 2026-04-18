@@ -73,31 +73,7 @@ const nextConfig: NextConfig = {
             key:   "Strict-Transport-Security",
             value: "max-age=31536000; includeSubDomains; preload",
           }] : []),
-          // Content Security Policy
-          {
-            key: "Content-Security-Policy",
-            value: [
-              "default-src 'self'",
-              // unsafe-eval retiré en prod. unsafe-inline requis par Next.js pour les styles inline.
-              `script-src 'self' 'unsafe-inline'${isProd ? "" : " 'unsafe-eval'"}`,
-              "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
-              "font-src 'self' https://fonts.gstatic.com",
-              // data: pour les SVG inline, blob: pour le service worker
-              "img-src 'self' data: blob: https://cdn.jsdelivr.net",
-              // Connexions uniquement vers soi-même
-              "connect-src 'self'",
-              // Service worker
-              "worker-src 'self' blob:",
-              // Pas d'iframes
-              "frame-ancestors 'none'",
-              // Pas d'injection de base URL
-              "base-uri 'self'",
-              // Formulaires uniquement vers soi-même
-              "form-action 'self'",
-              // Upgrade les requêtes HTTP en HTTPS en prod
-              ...(isProd ? ["upgrade-insecure-requests"] : []),
-            ].join("; "),
-          },
+          // Content-Security-Policy déplacé dans src/middleware.ts (nonces par requête)
         ],
       },
     ];

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { pinEqual, cleanupMap, extractIp, isBodySizeOk, isJsonContentType, retryAfterHeaders, validateAdminOrigin } from "@/lib/security";
+import { pinEqual, cleanupMap, extractIp, readJsonBody, isJsonContentType, retryAfterHeaders, validateAdminOrigin } from "@/lib/security";
 
 // ─── Compteur de tentatives par IP ────────────────────────────
 const failedAttempts = new Map<string, { count: number; resetAt: number }>();
@@ -24,10 +24,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ message: "Content-Type application/json requis" }, { status: 415 });
   }
 
-  // ── Vérification taille du corps (max 1 Ko — juste un PIN) ───
-  if (!isBodySizeOk(req, 1_000)) {
-    return NextResponse.json({ message: "Requête trop grande" }, { status: 413 });
-  }
+  // ── Lecture et validation du corps (max 1 Ko — juste un PIN) ─
+  const parsed = await readJsonBody<{ pin?: string }>(req, 1_000);
+  if (!parsed.ok) return NextResponse.json({ message: parsed.message }, { status: parsed.status });
+  const body = parsed.data;
 
   // Nettoyage périodique anti-memory-leak
   cleanupMap(failedAttempts);
@@ -41,13 +41,6 @@ export async function POST(req: NextRequest) {
       { message: "Trop de tentatives. Réessaie dans 5 minutes." },
       { status: 429, headers: retryAfterHeaders(attempts.resetAt - now) }
     );
-  }
-
-  let body: { pin?: string };
-  try {
-    body = await req.json();
-  } catch {
-    return NextResponse.json({ message: "Corps invalide" }, { status: 400 });
   }
 
   // Comparaison en temps constant (anti timing-attack)

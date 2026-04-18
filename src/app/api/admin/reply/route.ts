@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { readRequests, writeRequests } from "@/lib/db";
 import { sendPushToPseudo } from "@/lib/sendPush";
-import { pinEqual, cleanupMap, extractIp, isBodySizeOk, isJsonContentType, sanitizeDiscord, retryAfterHeaders, validateAdminOrigin, isValidUUID } from "@/lib/security";
+import { pinEqual, cleanupMap, extractIp, readJsonBody, isJsonContentType, sanitizeDiscord, retryAfterHeaders, validateAdminOrigin, isValidUUID } from "@/lib/security";
 
 // ─── Compteur de tentatives par IP ────────────────────────────
 const failedAttempts = new Map<string, { count: number; resetAt: number }>();
@@ -55,17 +55,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ message: "Content-Type application/json requis" }, { status: 415 });
   }
 
-  // ── Vérification taille du corps (max 10 Ko) ──────────────────
-  if (!isBodySizeOk(req, 10_000)) {
-    return NextResponse.json({ message: "Requête trop grande" }, { status: 413 });
-  }
-
-  let body: ReplyBody;
-  try {
-    body = await req.json();
-  } catch {
-    return NextResponse.json({ message: "Corps invalide" }, { status: 400 });
-  }
+  // ── Lecture et validation du corps (max 10 Ko) ───────────────
+  const parsed = await readJsonBody<ReplyBody>(req, 10_000);
+  if (!parsed.ok) return NextResponse.json({ message: parsed.message }, { status: parsed.status });
+  const body = parsed.data;
 
   // Nettoyage périodique anti-memory-leak
   cleanupMap(failedAttempts);

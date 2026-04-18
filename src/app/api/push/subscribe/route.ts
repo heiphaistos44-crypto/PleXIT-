@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { promises as fs } from "fs";
 import path from "path";
-import { cleanupMap, extractIp, isBodySizeOk, isJsonContentType, retryAfterHeaders } from "@/lib/security";
+import { cleanupMap, extractIp, readJsonBody, isJsonContentType, retryAfterHeaders } from "@/lib/security";
 
 const SUBS_PATH = path.join(process.cwd(), "data", "subscriptions.json");
 const MAX_SUBS_PER_PSEUDO = 10;
@@ -41,10 +41,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ message: "Content-Type application/json requis" }, { status: 415 });
   }
 
-  // ── Taille du corps (max 10 Ko — subscription object est petit) ─
-  if (!isBodySizeOk(req, 10_000)) {
-    return NextResponse.json({ message: "Requête trop grande" }, { status: 413 });
-  }
+  // ── Lecture et validation du corps (max 10 Ko) ───────────────
+  const parsed = await readJsonBody<{ pseudo?: string; subscription?: PushSubscriptionJSON }>(req, 10_000);
+  if (!parsed.ok) return NextResponse.json({ message: parsed.message }, { status: parsed.status });
+  const body = parsed.data;
 
   // ── Rate limiting ─────────────────────────────────────────────
   cleanupMap(ipRateLimit);
@@ -59,13 +59,6 @@ export async function POST(req: NextRequest) {
       { message: "Trop de requêtes." },
       { status: 429, headers: retryAfterHeaders(rl.resetAt - now) }
     );
-  }
-
-  let body: { pseudo?: string; subscription?: PushSubscriptionJSON };
-  try {
-    body = await req.json();
-  } catch {
-    return NextResponse.json({ message: "Corps invalide" }, { status: 400 });
   }
 
   const pseudo = body.pseudo?.trim();

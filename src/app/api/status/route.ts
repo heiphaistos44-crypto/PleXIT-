@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { promises as fs } from "fs";
 import path from "path";
-import { pinEqual, cleanupMap, extractIp, isBodySizeOk, isJsonContentType, retryAfterHeaders } from "@/lib/security";
+import { pinEqual, cleanupMap, extractIp, readJsonBody, isJsonContentType, retryAfterHeaders } from "@/lib/security";
 
 const STATUS_PATH = path.join(process.cwd(), "data", "status.json");
 
@@ -94,17 +94,10 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({ message: "Content-Type application/json requis" }, { status: 415 });
   }
 
-  // ── Vérification taille du corps (max 5 Ko) ───────────────────
-  if (!isBodySizeOk(req, 5_000)) {
-    return NextResponse.json({ message: "Requête trop grande" }, { status: 413 });
-  }
-
-  let body: { pin?: string; maintenance?: boolean; message?: string };
-  try {
-    body = await req.json();
-  } catch {
-    return NextResponse.json({ message: "Corps invalide" }, { status: 400 });
-  }
+  // ── Lecture et validation du corps (max 5 Ko) ────────────────
+  const parsed = await readJsonBody<{ pin?: string; maintenance?: boolean; message?: string }>(req, 5_000);
+  if (!parsed.ok) return NextResponse.json({ message: parsed.message }, { status: parsed.status });
+  const body = parsed.data;
 
   // Nettoyage périodique anti-memory-leak
   cleanupMap(failedAttempts);

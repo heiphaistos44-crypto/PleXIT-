@@ -105,3 +105,40 @@ export function validateAdminOrigin(req: NextRequest): boolean {
   if (!appUrl) return true; // Non configuré → mode dev, on laisse passer
   return origin === appUrl;
 }
+
+// ─── Lecture sécurisée du body JSON (anti-bypass chunked transfer) ──
+// Remplace le combo isBodySizeOk() + req.json() :
+// - Pre-check rapide via Content-Length si disponible
+// - Lecture réelle du texte avec vérification de taille (protège contre
+//   les requêtes chunked sans Content-Length qui bypassent isBodySizeOk)
+// - Parse JSON avec gestion d'erreur intégrée
+export async function readJsonBody<T>(
+  req: NextRequest,
+  maxBytes: number,
+): Promise<{ ok: true; data: T } | { ok: false; status: number; message: string }> {
+  // Pre-check via Content-Length (fast path, évite la lecture si déjà trop gros)
+  const cl = req.headers.get("content-length");
+  if (cl) {
+    const size = parseInt(cl, 10);
+    if (!isNaN(size) && size > maxBytes) {
+      return { ok: false, status: 413, message: "Requête trop grande" };
+    }
+  }
+  // Lecture réelle — protège contre chunked transfer sans Content-Length
+  let text: string;
+  try {
+    text = await req.text();
+  } catch {
+    return { ok: false, status: 400, message: "Corps illisible" };
+  }
+  if (text.length > maxBytes) {
+    return { ok: false, status: 413, message: "Requête trop grande" };
+  }
+  // Parse JSON
+  try {
+    const data = JSON.parse(text) as T;
+    return { ok: true, data };
+  } catch {
+    return { ok: false, status: 400, message: "Corps invalide" };
+  }
+}

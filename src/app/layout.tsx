@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { Inter } from "next/font/google";
+import { headers } from "next/headers";
 import "./globals.css";
 import Navbar from "@/components/Navbar";
 import MaintenanceBanner from "@/components/MaintenanceBanner";
@@ -24,11 +25,14 @@ export const viewport: Viewport = {
   themeColor: "#dc2626",
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
+  const nonce = (await headers()).get("x-nonce") ?? undefined;
+  void nonce; // Next.js détecte le nonce automatiquement via x-nonce dans les request headers
+
   return (
     <html lang="fr" className={inter.variable} style={{ colorScheme: "dark", backgroundColor: "#080808" }}>
       {/* color + background forcés en inline pour éviter tout conflit CSS/Tailwind */}

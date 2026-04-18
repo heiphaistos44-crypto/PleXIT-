@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import crypto from "crypto";
 import { readRequests, writeRequests } from "@/lib/db";
 import type { StoredRequest } from "@/types";
-import { cleanupMap, extractIp, isBodySizeOk, isJsonContentType, sanitizeDiscord, retryAfterHeaders } from "@/lib/security";
+import { cleanupMap, extractIp, readJsonBody, isJsonContentType, sanitizeDiscord, retryAfterHeaders } from "@/lib/security";
 
 // Re-export pour compatibilité avec les anciens imports
 export type { StoredRequest };
@@ -106,17 +106,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ message: "Content-Type application/json requis" }, { status: 415 });
   }
 
-  // ── Vérification taille du corps (max 20 Ko) ─────────────────
-  if (!isBodySizeOk(req, 20_000)) {
-    return NextResponse.json({ message: "Requête trop grande (max 20 Ko)" }, { status: 413 });
-  }
-
-  let body: RequestBody;
-  try {
-    body = await req.json();
-  } catch {
-    return NextResponse.json({ message: "Corps de requête invalide" }, { status: 400 });
-  }
+  // ── Lecture et validation du corps (max 20 Ko) ───────────────
+  const parsed = await readJsonBody<RequestBody>(req, 20_000);
+  if (!parsed.ok) return NextResponse.json({ message: parsed.message }, { status: parsed.status });
+  const body = parsed.data;
 
   if (!body.titre?.trim()) {
     return NextResponse.json({ message: "Le titre est requis" }, { status: 400 });

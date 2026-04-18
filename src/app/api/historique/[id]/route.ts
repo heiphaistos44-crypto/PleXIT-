@@ -104,8 +104,10 @@ export async function DELETE(
     );
   }
 
-  // PIN via header (DELETE n'a pas de body par convention REST)
-  const pin = _req.headers.get("x-admin-pin") ?? "";
+  // PIN via body JSON (header x-admin-pin exposé dans les logs proxy)
+  let body: { pin?: string } = {};
+  try { body = await _req.json(); } catch { /* corps vide ou invalide → pin vide */ }
+  const pin = body.pin ?? "";
   if (!pin || !pinEqual(pin, adminPin)) {
     const current = failedAttempts.get(ip) ?? { count: 0, resetAt: now + LOCKOUT_MS };
     failedAttempts.set(ip, {
