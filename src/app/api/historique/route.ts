@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { readRequests, writeRequests } from "@/lib/db";
-import { cleanupMap, extractIp, retryAfterHeaders } from "@/lib/security";
+import { cleanupMap, extractIp, retryAfterHeaders, isValidSectionKey } from "@/lib/security";
 
 // Normalise une chaîne pour la comparaison fuzzy
 function normalize(s: string): string {
@@ -54,6 +54,8 @@ export async function GET(req: NextRequest) {
 
         await Promise.all(
           sections.slice(0, 6).map(async (sec: { key: string; type: string }) => {
+            // Anti-SSRF : la clé de section doit être un entier positif (format Plex)
+            if (!isValidSectionKey(sec.key)) return;
             try {
               const res = await fetch(
                 `${plexBase}/library/sections/${sec.key}/all`,
@@ -97,8 +99,12 @@ export async function GET(req: NextRequest) {
     await writeRequests(updated).catch(console.error);
   }
 
+  // ⛔ discordUserId est un champ interne (mentions Discord côté admin).
+  // Ne jamais l'exposer dans la réponse publique (protection PII — IDs Discord).
+  const safeEnriched = enriched.map(({ discordUserId: _dId, ...rest }) => rest);
+
   return NextResponse.json(
-    { requests: enriched, total: enriched.length },
+    { requests: safeEnriched, total: safeEnriched.length },
     { headers: { "Cache-Control": "no-store" } }
   );
 }

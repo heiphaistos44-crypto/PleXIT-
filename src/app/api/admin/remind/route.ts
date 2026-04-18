@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { readRequests } from "@/lib/db";
 import type { StoredRequest } from "@/lib/db";
-import { pinEqual, cleanupMap, extractIp, isBodySizeOk, isJsonContentType, sanitizeDiscord, retryAfterHeaders } from "@/lib/security";
+import { pinEqual, cleanupMap, extractIp, isBodySizeOk, isJsonContentType, sanitizeDiscord, retryAfterHeaders, validateAdminOrigin } from "@/lib/security";
 
 // ─── Brute-force protection ────────────────────────────────────
 const failedAttempts = new Map<string, { count: number; resetAt: number }>();
@@ -14,6 +14,11 @@ export async function POST(req: NextRequest) {
 
   if (!adminPin || !webhookUrl) {
     return NextResponse.json({ message: "Configuration serveur manquante" }, { status: 500 });
+  }
+
+  // ── Validation d'origine (CSRF defense-in-depth) ─────────────
+  if (!validateAdminOrigin(req)) {
+    return NextResponse.json({ message: "Origine non autorisée" }, { status: 403 });
   }
 
   // ── Vérification Content-Type ─────────────────────────────────

@@ -22,7 +22,16 @@ self.addEventListener('push', (event) => {
 
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
-  const url = event.notification.data?.url || '/historique';
+  const raw = event.notification.data?.url || '/historique';
+  // Sécurité : open redirect prevention — on n'accepte que les chemins relatifs
+  // de la même origine (commence par "/" mais pas "//", et n'est pas une URL absolue).
+  const url = (
+    typeof raw === 'string' &&
+    raw.startsWith('/') &&
+    !raw.startsWith('//') &&
+    !/^[a-z][a-z0-9+.-]*:/i.test(raw)
+  ) ? raw : '/historique';
+
   event.waitUntil(
     clients.matchAll({ type: 'window', includeUncontrolled: true }).then((wins) => {
       for (const win of wins) {

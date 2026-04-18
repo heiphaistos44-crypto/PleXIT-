@@ -80,3 +80,28 @@ export function sanitizeDiscord(s: string): string {
 export function retryAfterHeaders(windowMs: number): Record<string, string> {
   return { "Retry-After": String(Math.ceil(windowMs / 1000)) };
 }
+
+// ─── Validation clé de section Plex (anti-SSRF second-ordre) ─
+// Les sections Plex sont des entiers positifs.
+// Rejeter toute valeur non-numérique avant de l'injecter dans une URL.
+export function isValidSectionKey(key: string): boolean {
+  return /^\d{1,10}$/.test(key);
+}
+
+// ─── Validation UUID v4 (format crypto.randomUUID()) ────────
+// Protège les endpoints /api/historique/[id] contre les path traversal.
+export function isValidUUID(id: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id);
+}
+
+// ─── Validation origine (CSRF defense-in-depth) ───────────────
+// Vérifie que l'en-tête Origin correspond à l'URL de l'application.
+// Retourne true si l'origin est absente (requête same-origin / curl / SSR)
+// ou si NEXT_PUBLIC_APP_URL n'est pas configurée (mode dev).
+export function validateAdminOrigin(req: NextRequest): boolean {
+  const origin = req.headers.get("origin");
+  if (!origin) return true; // Requête sans Origin (ex: navigations directes, outils CLI)
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "");
+  if (!appUrl) return true; // Non configuré → mode dev, on laisse passer
+  return origin === appUrl;
+}

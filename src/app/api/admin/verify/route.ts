@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { pinEqual, cleanupMap, extractIp, isBodySizeOk, isJsonContentType, retryAfterHeaders } from "@/lib/security";
+import { pinEqual, cleanupMap, extractIp, isBodySizeOk, isJsonContentType, retryAfterHeaders, validateAdminOrigin } from "@/lib/security";
 
 // ─── Compteur de tentatives par IP ────────────────────────────
 const failedAttempts = new Map<string, { count: number; resetAt: number }>();
@@ -12,6 +12,11 @@ export async function POST(req: NextRequest) {
   if (!adminPin) {
     // ⚠️ Ne pas révéler le nom de la variable d'environnement dans le message d'erreur
     return NextResponse.json({ message: "Configuration serveur manquante" }, { status: 500 });
+  }
+
+  // ── Validation d'origine (CSRF defense-in-depth) ─────────────
+  if (!validateAdminOrigin(req)) {
+    return NextResponse.json({ message: "Origine non autorisée" }, { status: 403 });
   }
 
   // ── Vérification Content-Type ─────────────────────────────────

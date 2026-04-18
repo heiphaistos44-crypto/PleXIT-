@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { readRequests, writeRequests } from "@/lib/db";
-import { pinEqual, cleanupMap, extractIp, retryAfterHeaders } from "@/lib/security";
+import { pinEqual, cleanupMap, extractIp, retryAfterHeaders, isValidUUID } from "@/lib/security";
 
 // ─── Brute-force protection ───────────────────────────────────
 const failedAttempts = new Map<string, { count: number; resetAt: number }>();
@@ -45,6 +45,11 @@ export async function PATCH(
 
   // PIN correct — réinitialise le compteur
   failedAttempts.delete(ip);
+
+  // Validation format UUID v4 (anti path traversal / injection)
+  if (!isValidUUID(id)) {
+    return NextResponse.json({ message: "Identifiant invalide" }, { status: 400 });
+  }
 
   if (!body.status) {
     return NextResponse.json({ message: "status requis" }, { status: 400 });
@@ -114,6 +119,12 @@ export async function DELETE(
   failedAttempts.delete(ip);
 
   const { id } = await params;
+
+  // Validation format UUID v4 (anti path traversal / injection)
+  if (!isValidUUID(id)) {
+    return NextResponse.json({ message: "Identifiant invalide" }, { status: 400 });
+  }
+
   const list  = await readRequests();
   const newList = list.filter(r => r.id !== id);
 

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { readRequests, writeRequests } from "@/lib/db";
 import { sendPushToPseudo } from "@/lib/sendPush";
-import { pinEqual, cleanupMap, extractIp, isBodySizeOk, isJsonContentType, sanitizeDiscord, retryAfterHeaders } from "@/lib/security";
+import { pinEqual, cleanupMap, extractIp, isBodySizeOk, isJsonContentType, sanitizeDiscord, retryAfterHeaders, validateAdminOrigin, isValidUUID } from "@/lib/security";
 
 // ─── Compteur de tentatives par IP ────────────────────────────
 const failedAttempts = new Map<string, { count: number; resetAt: number }>();
@@ -43,6 +43,11 @@ export async function POST(req: NextRequest) {
 
   if (!adminPin || !webhookUrl) {
     return NextResponse.json({ message: "Configuration serveur manquante" }, { status: 500 });
+  }
+
+  // ── Validation d'origine (CSRF defense-in-depth) ─────────────
+  if (!validateAdminOrigin(req)) {
+    return NextResponse.json({ message: "Origine non autorisée" }, { status: 403 });
   }
 
   // ── Vérification Content-Type ─────────────────────────────────
@@ -92,6 +97,10 @@ export async function POST(req: NextRequest) {
 
   if (!body.requestId) {
     return NextResponse.json({ message: "requestId manquant" }, { status: 400 });
+  }
+  // Validation format UUID v4 (anti injection via requestId)
+  if (!isValidUUID(body.requestId)) {
+    return NextResponse.json({ message: "requestId invalide" }, { status: 400 });
   }
 
   const VALID_STATUSES = ["added", "rejected", "pending", "not_found"] as const;
@@ -150,8 +159,12 @@ export async function POST(req: NextRequest) {
   };
 
   // ── Mention Discord si userId fourni ──────────────────────────
-  // La mention <@ID> n'utilise pas @ libre, mais on bloque quand même avec allowed_mentions
-  const discordMention = request.discordUserId ? `<@${request.discordUserId}>` : `**${safePseudo}**`;
+  // Re-validation du format (defense-in-depth vs données corrompues dans requests.json)
+  // discordUserId doit être un entier Discord valide (17–20 chiffres uniquement)
+  const safeDiscordId = (request.discordUserId && /^\d{17,20}$/.test(request.discordUserId))
+    ? request.discordUserId
+    : undefined;
+  const discordMention = safeDiscordId ? `<@${safeDiscordId}>` : `**${safePseudo}**`;
   const discordContent = `🔔 ${discordMention} — ta demande **${safeTitre}** → ${statusLabel}`;
 
   let discordError = false;

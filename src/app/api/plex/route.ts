@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { cleanupMap, extractIp, retryAfterHeaders } from "@/lib/security";
+import { cleanupMap, extractIp, retryAfterHeaders, isValidSectionKey } from "@/lib/security";
 
 // ─── Types ────────────────────────────────────────────────────
 type Category = "movie" | "show" | "anime" | "music" | "exclusive";
@@ -125,6 +125,8 @@ async function fetchAllFromPlex(plexUrl: string, token: string): Promise<MappedI
   // 2. Items de chaque section en parallèle
   const all: MappedItem[] = [];
   await Promise.all(sections.map(async (section) => {
+    // Anti-SSRF : la clé de section doit être un entier positif (format Plex natif)
+    if (!isValidSectionKey(section.key)) return;
     try {
       const res = await fetch(
         `${plexUrl}/library/sections/${section.key}/all`,
