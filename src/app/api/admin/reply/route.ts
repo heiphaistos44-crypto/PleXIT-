@@ -39,7 +39,8 @@ interface ReplyBody {
 
 export async function POST(req: NextRequest) {
   const adminPin   = process.env.ADMIN_PIN;
-  const webhookUrl = process.env.DISCORD_WEBHOOK_URL;
+  // Utilise le salon réponses dédié si configuré, sinon fallback sur le salon demandes
+  const webhookUrl = process.env.DISCORD_REPLY_WEBHOOK_URL ?? process.env.DISCORD_WEBHOOK_URL;
 
   if (!adminPin || !webhookUrl) {
     return NextResponse.json({ message: "Configuration serveur manquante" }, { status: 500 });
