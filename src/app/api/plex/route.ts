@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { cleanupMap } from "@/lib/security";
 
 // ─── Types ────────────────────────────────────────────────────
 type Category = "movie" | "show" | "anime" | "music" | "exclusive";
@@ -56,11 +57,21 @@ function isCacheValid(): boolean {
   return !!serverCache && Date.now() - serverCache.timestamp < CACHE_TTL;
 }
 
+// ─── Rate-limit pour le cache-bust refresh=1 ─────────────────
+// Protège Plex contre les refreshs abusifs (DoS involontaire)
+const refreshRateLimit = new Map<string, { count: number; resetAt: number }>();
+const REFRESH_WINDOW_MS = 5 * 60 * 1000; // 5 minutes
+const MAX_REFRESHES     = 3;              // max 3 refreshes / 5 min / IP
+
+// ─── Rate-limit général sur l'endpoint /api/plex ─────────────
+const getRequestLimit = new Map<string, { count: number; resetAt: number }>();
+const GET_LIMIT_MAX  = 60;               // 60 req / 2 min / IP
+const GET_LIMIT_WIN  = 2 * 60 * 1000;
+
 // ─── Détection de catégorie par titre de section ──────────────
 function detectCategory(sectionType: string, sectionTitle: string): Category {
   if (sectionType === "artist") return "music";
   const t = sectionTitle.toLowerCase();
-  // Exclusivités — sections avec "exclus", "exclu", "rare", "exclusif" dans le titre
   if (t.includes("exclus") || t.includes("exclu") || t.includes("rare") || t.includes("exclusif")) return "exclusive";
   if (t.includes("animé") || t.includes("anime") || t.includes("manga")) return "anime";
   return sectionType === "movie" ? "movie" : "show";
@@ -70,13 +81,12 @@ function detectCategory(sectionType: string, sectionTitle: string): Category {
 function mapItem(
   item:    PlexMediaItem,
   section: PlexSection,
-  plexUrl: string,
-  token:   string,
 ): MappedItem {
   const category = detectCategory(section.type, section.title);
-  // ⚠️ Le token ne doit JAMAIS sortir dans la réponse JSON — on proxy via /api/plex/image
+  // ⚠️ Le token ne sort JAMAIS dans la réponse JSON.
+  // On utilise ?path= (chemin relatif) — le token est ajouté côté serveur dans /api/plex/image.
   const thumbProxy = item.thumb
-    ? `/api/plex/image?url=${encodeURIComponent(`${plexUrl}${item.thumb}?X-Plex-Token=${token}`)}`
+    ? `/api/plex/image?path=${encodeURIComponent(item.thumb)}`
     : undefined;
   return {
     id:           item.ratingKey,
@@ -99,10 +109,13 @@ function mapItem(
 
 // ─── Fetch complet depuis Plex (remplit le cache) ─────────────
 async function fetchAllFromPlex(plexUrl: string, token: string): Promise<MappedItem[]> {
+  // Token transmis via header (jamais dans l'URL côté serveur → moins de traces dans les logs)
+  const plexHeaders = { Accept: "application/json", "X-Plex-Token": token };
+
   // 1. Sections
   const sectionsRes = await fetch(
-    `${plexUrl}/library/sections?X-Plex-Token=${token}`,
-    { headers: { Accept: "application/json" }, signal: AbortSignal.timeout(8000) }
+    `${plexUrl}/library/sections`,
+    { headers: plexHeaders, signal: AbortSignal.timeout(8000) }
   );
   if (!sectionsRes.ok) throw new Error(`Plex sections: ${sectionsRes.status}`);
   const sectionsData = await sectionsRes.json();
@@ -114,13 +127,13 @@ async function fetchAllFromPlex(plexUrl: string, token: string): Promise<MappedI
   await Promise.all(sections.map(async (section) => {
     try {
       const res = await fetch(
-        `${plexUrl}/library/sections/${section.key}/all?X-Plex-Token=${token}`,
-        { headers: { Accept: "application/json" }, signal: AbortSignal.timeout(15000) }
+        `${plexUrl}/library/sections/${section.key}/all`,
+        { headers: plexHeaders, signal: AbortSignal.timeout(15000) }
       );
       if (!res.ok) return;
       const data = await res.json();
       const media: PlexMediaItem[] = data?.MediaContainer?.Metadata ?? [];
-      media.forEach(item => all.push(mapItem(item, section, plexUrl, token)));
+      media.forEach(item => all.push(mapItem(item, section)));
     } catch { /* section ignorée si timeout */ }
   }));
 
@@ -144,7 +157,6 @@ function filterItems(
   search:   string,
 ): MappedItem[] {
   return items.filter(item => {
-    // "Exclusivités" = contenu bien noté (≥7.5), hors musique
     if (category === "exclusive") {
       if ((item.rating ?? 0) < 7.5 || item.category === "music") return false;
     } else if (category !== "all" && item.category !== category) {
@@ -165,15 +177,41 @@ export async function GET(req: NextRequest) {
   const limit    = Math.min(96, Math.max(12, parseInt(searchParams.get("limit") ?? "48")));
   const category = searchParams.get("category") ?? "all";
   const sort     = (searchParams.get("sort") ?? "recent") as SortMode;
-  const search   = (searchParams.get("search") ?? "").trim();
-  const refresh  = searchParams.get("refresh") === "1";
+  const search   = (searchParams.get("search") ?? "").trim().slice(0, 100); // trim input
+  const wantsRefresh = searchParams.get("refresh") === "1";
 
-  const plexUrl  = process.env.PLEX_URL?.replace(/\/$/, "");
-  const token    = process.env.PLEX_TOKEN;
+  // ── Rate-limit général ────────────────────────────────────────
+  cleanupMap(getRequestLimit);
+  const ip  = req.headers.get("x-forwarded-for")?.split(",")[0].trim() ?? "unknown";
+  const now = Date.now();
+  const gl  = getRequestLimit.get(ip) ?? { count: 0, resetAt: now + GET_LIMIT_WIN };
+  if (now > gl.resetAt) { gl.count = 0; gl.resetAt = now + GET_LIMIT_WIN; }
+  gl.count++;
+  getRequestLimit.set(ip, gl);
+  if (gl.count > GET_LIMIT_MAX) {
+    return NextResponse.json({ message: "Trop de requêtes." }, { status: 429 });
+  }
+
+  // ── Rate-limit du cache-bust refresh=1 ───────────────────────
+  let doRefresh = false;
+  if (wantsRefresh) {
+    cleanupMap(refreshRateLimit);
+    const rl = refreshRateLimit.get(ip) ?? { count: 0, resetAt: now + REFRESH_WINDOW_MS };
+    if (now > rl.resetAt) { rl.count = 0; rl.resetAt = now + REFRESH_WINDOW_MS; }
+    if (rl.count < MAX_REFRESHES) {
+      rl.count++;
+      refreshRateLimit.set(ip, rl);
+      doRefresh = true;
+    }
+    // Si rate-limité, on utilise simplement le cache existant sans refresher
+  }
+
+  const plexUrl = process.env.PLEX_URL?.replace(/\/$/, "");
+  const token   = process.env.PLEX_TOKEN;
 
   // ── Mode démo ──
   if (!plexUrl || !token) {
-    const demo = generateDemoData();
+    const demo    = generateDemoData();
     const filtered = filterItems(demo, category, search);
     const sorted   = sortItems(filtered, sort);
     const total    = sorted.length;
@@ -190,7 +228,7 @@ export async function GET(req: NextRequest) {
 
   try {
     // ── Remplit le cache si nécessaire ──
-    if (!isCacheValid() || refresh) {
+    if (!isCacheValid() || doRefresh) {
       const items = await fetchAllFromPlex(plexUrl, token);
       serverCache = { items, timestamp: Date.now() };
     }
@@ -201,7 +239,6 @@ export async function GET(req: NextRequest) {
     const total    = sorted.length;
     const start    = (page - 1) * limit;
 
-    // Compteurs par catégorie
     const counts = {
       all:       all.length,
       movie:     all.filter(i => i.category === "movie").length,
@@ -227,7 +264,6 @@ export async function GET(req: NextRequest) {
 
   } catch (err) {
     console.error("Plex API error:", err);
-    // Si le cache est dispo (même expiré), on l'utilise en fallback
     if (serverCache) {
       const filtered = filterItems(serverCache.items, category, search);
       const sorted   = sortItems(filtered, sort);

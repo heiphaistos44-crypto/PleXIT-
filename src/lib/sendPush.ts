@@ -25,9 +25,13 @@ async function readSubs(): Promise<PushSub[]> {
   }
 }
 
+/** Écriture atomique via tmp + rename — évite la corruption en cas de crash */
 async function writeSubs(list: PushSub[]): Promise<void> {
-  await fs.mkdir(path.dirname(SUBS_PATH), { recursive: true });
-  await fs.writeFile(SUBS_PATH, JSON.stringify(list, null, 2), "utf-8");
+  const dir = path.dirname(SUBS_PATH);
+  await fs.mkdir(dir, { recursive: true });
+  const tmp = SUBS_PATH + ".tmp";
+  await fs.writeFile(tmp, JSON.stringify(list, null, 2), "utf-8");
+  await fs.rename(tmp, SUBS_PATH);
 }
 
 export interface PushPayload {

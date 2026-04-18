@@ -96,7 +96,7 @@ function MediaCard({ item, isNew }: { item: MediaItem; isNew: boolean }) {
         {item.thumb ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
-            src={`/api/plex/image?url=${encodeURIComponent(item.thumb)}`}
+            src={item.thumb}
             alt={item.title}
             style={{ width: "100%", height: "100%", objectFit: "cover" }}
             onError={e => { (e.currentTarget as HTMLImageElement).style.display = "none"; }}

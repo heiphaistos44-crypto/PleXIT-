@@ -6,10 +6,17 @@ export const DATA_PATH  = path.join(process.cwd(), "data", "requests.json");
 export const SUBS_PATH  = path.join(process.cwd(), "data", "subscriptions.json");
 export const STATUS_PATH = path.join(process.cwd(), "data", "status.json");
 
-/** Lecture atomique — retourne [] si fichier absent ou JSON invalide */
+/** Lecture atomique — retourne [] si fichier absent, JSON invalide ou structure incorrecte */
 export async function readRequests(): Promise<StoredRequest[]> {
   try {
-    return JSON.parse(await fs.readFile(DATA_PATH, "utf-8")) as StoredRequest[];
+    const raw    = await fs.readFile(DATA_PATH, "utf-8");
+    const parsed = JSON.parse(raw);
+    // Validation de structure basique : doit être un tableau
+    if (!Array.isArray(parsed)) {
+      console.error("db.ts: requests.json n'est pas un tableau — réinitialisation");
+      return [];
+    }
+    return parsed as StoredRequest[];
   } catch {
     return [];
   }

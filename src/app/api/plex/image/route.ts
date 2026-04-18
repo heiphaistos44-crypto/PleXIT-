@@ -2,31 +2,54 @@ import { NextRequest, NextResponse } from "next/server";
 
 // Cache mémoire côté serveur pour éviter de re-fetcher les mêmes images
 const imageCache = new Map<string, { buffer: ArrayBuffer; contentType: string; ts: number }>();
-const IMAGE_CACHE_TTL = 24 * 60 * 60 * 1000; // 24h
+const IMAGE_CACHE_TTL  = 24 * 60 * 60 * 1000; // 24h
+const MAX_IMAGE_SIZE   = 10 * 1024 * 1024;     // 10 Mo max
+
+// Types MIME image autorisés (whitelist stricte)
+const ALLOWED_MIME_PREFIXES = ["image/jpeg", "image/png", "image/webp", "image/gif", "image/avif"];
 
 export async function GET(req: NextRequest) {
-  const rawUrl = req.nextUrl.searchParams.get("url") ?? "";
+  const { searchParams } = req.nextUrl;
 
-  if (!rawUrl) {
-    return NextResponse.json({ error: "Missing url" }, { status: 400 });
+  const plexUrl   = process.env.PLEX_URL?.replace(/\/$/, "");
+  const plexToken = process.env.PLEX_TOKEN;
+
+  // ── Mode 1 (sécurisé) : chemin Plex relatif ─────────────────
+  // Le token n'est jamais exposé dans les URLs visibles par le navigateur.
+  // ?path=/library/metadata/123/thumb/456
+  const plexPath = searchParams.get("path");
+  let fetchUrl: string;
+  let fetchHeaders: HeadersInit;
+
+  if (plexPath !== null) {
+    if (!plexUrl || !plexToken) {
+      return NextResponse.json({ error: "Plex non configuré" }, { status: 503 });
+    }
+    // Sécurité : chemin Plex doit commencer par /library/
+    if (!plexPath.startsWith("/library/")) {
+      return NextResponse.json({ error: "Chemin non autorisé" }, { status: 403 });
+    }
+    fetchUrl     = `${plexUrl}${plexPath}`;
+    fetchHeaders = { Accept: "image/*", "X-Plex-Token": plexToken };
+
+  // ── Mode 2 (legacy) : URL complète – conservé pour rétro-compat ─
+  } else {
+    const rawUrl = searchParams.get("url") ?? "";
+    if (!rawUrl) {
+      return NextResponse.json({ error: "Paramètre url ou path manquant" }, { status: 400 });
+    }
+    if (!rawUrl.startsWith("http://") && !rawUrl.startsWith("https://")) {
+      return NextResponse.json({ error: "URL invalide" }, { status: 400 });
+    }
+    if (!plexUrl || !rawUrl.startsWith(plexUrl)) {
+      return NextResponse.json({ error: "URL non autorisée" }, { status: 403 });
+    }
+    fetchUrl     = rawUrl;
+    fetchHeaders = { Accept: "image/*" };
   }
 
-  // Validation du schéma HTTP/HTTPS
-  if (!rawUrl.startsWith("http://") && !rawUrl.startsWith("https://")) {
-    return NextResponse.json({ error: "URL invalide" }, { status: 400 });
-  }
-
-  // Blocage SSRF : PLEX_URL obligatoire, l'URL doit en être un préfixe strict
-  const plexUrl = process.env.PLEX_URL?.replace(/\/$/, "");
-  if (!plexUrl || !rawUrl.startsWith(plexUrl)) {
-    return NextResponse.json({ error: "URL non autorisée" }, { status: 403 });
-  }
-
-  // Alias pour la suite (ancienne variable `url`)
-  const url = rawUrl;
-
-  // Vérifie le cache mémoire serveur
-  const cached = imageCache.get(url);
+  // ── Cache hit ─────────────────────────────────────────────────
+  const cached = imageCache.get(fetchUrl);
   if (cached && Date.now() - cached.ts < IMAGE_CACHE_TTL) {
     return new NextResponse(cached.buffer, {
       status: 200,
@@ -39,35 +62,54 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const imgRes = await fetch(url, {
-      signal: AbortSignal.timeout(6000),
-      // Demande une vignette redimensionnée si possible (Plex supporte ça)
+    const imgRes = await fetch(fetchUrl, {
+      headers:  fetchHeaders,
+      signal:   AbortSignal.timeout(6000),
+      redirect: "error",  // ⛔ Pas de suivi de redirection (anti-SSRF)
     });
 
     if (!imgRes.ok) {
       return NextResponse.json({ error: "Image non trouvée" }, { status: 404 });
     }
 
-    const contentType = imgRes.headers.get("content-type") || "image/jpeg";
+    // ── Validation du Content-Type (whitelist image) ──────────
+    const rawContentType = imgRes.headers.get("content-type") ?? "";
+    const contentType    = rawContentType.split(";")[0].trim().toLowerCase();
+    if (!ALLOWED_MIME_PREFIXES.some(t => contentType === t)) {
+      return NextResponse.json({ error: "Type de contenu non autorisé" }, { status: 403 });
+    }
+
+    // ── Vérification de taille annoncée ──────────────────────
+    const cl = imgRes.headers.get("content-length");
+    if (cl && parseInt(cl, 10) > MAX_IMAGE_SIZE) {
+      return NextResponse.json({ error: "Image trop grande (max 10 Mo)" }, { status: 413 });
+    }
+
     const buffer = await imgRes.arrayBuffer();
 
-    // Stocke en cache mémoire (max 500 images ~50MB)
-    if (imageCache.size > 500) {
-      // Supprime l'entrée la plus ancienne
+    // ── Vérification de taille réelle ────────────────────────
+    if (buffer.byteLength > MAX_IMAGE_SIZE) {
+      return NextResponse.json({ error: "Image trop grande (max 10 Mo)" }, { status: 413 });
+    }
+
+    // ── LRU : évict le plus ancien si > 500 entrées ──────────
+    if (imageCache.size >= 500) {
       const oldest = [...imageCache.entries()].sort((a, b) => a[1].ts - b[1].ts)[0];
       if (oldest) imageCache.delete(oldest[0]);
     }
-    imageCache.set(url, { buffer, contentType, ts: Date.now() });
+    imageCache.set(fetchUrl, { buffer, contentType: contentType || "image/jpeg", ts: Date.now() });
 
     return new NextResponse(buffer, {
       status: 200,
       headers: {
-        "Content-Type":  contentType,
+        "Content-Type":  contentType || "image/jpeg",
         "Cache-Control": "public, max-age=86400, immutable",
         "X-Cache":       "MISS",
       },
     });
-  } catch {
-    return NextResponse.json({ error: "Impossible de charger l'image" }, { status: 502 });
+  } catch (err) {
+    // TypeError = redirect bloqué (redirect:"error")
+    const msg = err instanceof TypeError ? "Redirection non autorisée" : "Impossible de charger l'image";
+    return NextResponse.json({ error: msg }, { status: 502 });
   }
 }

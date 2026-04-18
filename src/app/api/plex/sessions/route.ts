@@ -1,35 +1,52 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
+import { cleanupMap } from "@/lib/security";
 
 export interface PlexSession {
   sessionId:    string;
   user:         string;
   title:        string;
-  grandparent?: string; // série parente si épisode
+  grandparent?: string;
   type:         "movie" | "episode" | "track";
   thumb?:       string;
   progress:     number; // 0-100
   state:        "playing" | "paused" | "buffering";
-  player:       string; // nom de l'appareil
+  player:       string;
   year?:        number;
 }
 
-export async function GET() {
+// ─── Rate-limit : 60 req / 2 min / IP ────────────────────────
+const getRequestLimit = new Map<string, { count: number; resetAt: number }>();
+const GET_LIMIT_MAX = 60;
+const GET_LIMIT_WIN = 2 * 60 * 1000;
+
+export async function GET(req: NextRequest) {
+  // ── Rate-limit ────────────────────────────────────────────────
+  cleanupMap(getRequestLimit);
+  const ip  = req.headers.get("x-forwarded-for")?.split(",")[0].trim() ?? "unknown";
+  const now = Date.now();
+  const gl  = getRequestLimit.get(ip) ?? { count: 0, resetAt: now + GET_LIMIT_WIN };
+  if (now > gl.resetAt) { gl.count = 0; gl.resetAt = now + GET_LIMIT_WIN; }
+  gl.count++;
+  getRequestLimit.set(ip, gl);
+  if (gl.count > GET_LIMIT_MAX) {
+    return NextResponse.json({ message: "Trop de requêtes." }, { status: 429 });
+  }
+
   const plexUrl = process.env.PLEX_URL?.replace(/\/$/, "");
   const token   = process.env.PLEX_TOKEN;
 
   if (!plexUrl || !token) {
-    // Mode démo — aucune session active
     return NextResponse.json({ sessions: [], demo: true });
   }
 
   try {
+    // Token transmis via header — jamais dans l'URL (moins de traces logs)
     const res = await fetch(
-      `${plexUrl}/status/sessions?X-Plex-Token=${token}`,
+      `${plexUrl}/status/sessions`,
       {
-        headers: { Accept: "application/json" },
+        headers: { Accept: "application/json", "X-Plex-Token": token },
         signal:  AbortSignal.timeout(5000),
-        // Ne pas mettre en cache côté Next.js — c'est du live
-        cache: "no-store",
+        cache:   "no-store",
       }
     );
 
@@ -37,7 +54,7 @@ export async function GET() {
       return NextResponse.json({ sessions: [], error: `Plex ${res.status}` });
     }
 
-    const data = await res.json();
+    const data     = await res.json();
     const metadata = data?.MediaContainer?.Metadata ?? [];
 
     const sessions: PlexSession[] = metadata.map((m: Record<string, unknown>) => {
@@ -45,24 +62,25 @@ export async function GET() {
       const duration    = typeof m.duration   === "number" ? m.duration   : 1;
       const progress    = Math.round((viewOffset / duration) * 100);
 
-      const player = (m.Player as Record<string, unknown> | undefined);
+      const player      = (m.Player as Record<string, unknown> | undefined);
       const playerTitle = typeof player?.title === "string" ? player.title : "Appareil inconnu";
       const stateRaw    = typeof player?.state === "string" ? player.state : "playing";
       const state: PlexSession["state"] =
         stateRaw === "paused" ? "paused" :
         stateRaw === "buffering" ? "buffering" : "playing";
 
-      const session = (m.Session as Record<string, unknown> | undefined);
+      const session   = (m.Session as Record<string, unknown> | undefined);
       const sessionId = typeof session?.id === "string" ? session.id :
                         (typeof m.sessionKey === "string" ? m.sessionKey : String(Math.random()));
 
+      // ⚠️ On utilise ?path= (token jamais dans l'URL navigateur)
       const thumb = typeof m.thumb === "string"
-        ? `/api/plex/image?url=${encodeURIComponent(`${plexUrl}${m.thumb}?X-Plex-Token=${token}`)}`
+        ? `/api/plex/image?path=${encodeURIComponent(m.thumb)}`
         : undefined;
 
       return {
         sessionId,
-        user:        "Membre", // masqué pour confidentialité (userName non exposé via l'API)
+        user:        "Membre",
         title:       typeof m.title === "string" ? m.title : "Inconnu",
         grandparent: typeof m.grandparentTitle === "string" ? m.grandparentTitle : undefined,
         type:        (m.type === "episode" ? "episode" : m.type === "track" ? "track" : "movie") as PlexSession["type"],

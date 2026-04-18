@@ -30,7 +30,7 @@ export default function MediaCard({ item, priority, onClick }: MediaCardProps) {
       {item.thumb && !imgError ? (
         // eslint-disable-next-line @next/next/no-img-element
         <img
-          src={`/api/plex/image?url=${encodeURIComponent(item.thumb)}`}
+          src={item.thumb}
           alt={item.title}
           loading={priority ? "eager" : "lazy"}
           decoding="async"
@@ -106,7 +106,7 @@ export function ItemModal({ item, onClose }: ItemModalProps) {
             {item.thumb && !imgError ? (
               // eslint-disable-next-line @next/next/no-img-element
               <img
-                src={`/api/plex/image?url=${encodeURIComponent(item.thumb)}`}
+                src={item.thumb}
                 alt={item.title}
                 style={{ width: "100%", height: "100%", objectFit: "cover", minHeight: 260, display: "block" }}
                 onError={() => setImgError(true)}

@@ -26,9 +26,13 @@ async function readStatus(): Promise<SiteStatus> {
   }
 }
 
+/** Écriture atomique via tmp + rename — évite la corruption en cas de crash */
 async function writeStatus(s: SiteStatus): Promise<void> {
-  await fs.mkdir(path.dirname(STATUS_PATH), { recursive: true });
-  await fs.writeFile(STATUS_PATH, JSON.stringify(s, null, 2), "utf-8");
+  const dir = path.dirname(STATUS_PATH);
+  await fs.mkdir(dir, { recursive: true });
+  const tmp = STATUS_PATH + ".tmp";
+  await fs.writeFile(tmp, JSON.stringify(s, null, 2), "utf-8");
+  await fs.rename(tmp, STATUS_PATH);
 }
 
 // ── GET : état public du serveur ──────────────────────────────
@@ -44,9 +48,11 @@ export async function GET() {
   if (plexUrl && plexToken) {
     try {
       const t0  = Date.now();
-      const res = await fetch(`${plexUrl}/?X-Plex-Token=${plexToken}`, {
-        signal: AbortSignal.timeout(4000),
-        cache:  "no-store",
+      // Token via header — jamais dans l'URL (moins de traces logs)
+      const res = await fetch(`${plexUrl}/`, {
+        headers: { "X-Plex-Token": plexToken },
+        signal:  AbortSignal.timeout(4000),
+        cache:   "no-store",
       });
       plexOnline  = res.ok;
       plexLatency = Date.now() - t0;

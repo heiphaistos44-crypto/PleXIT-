@@ -159,7 +159,7 @@ function AdminPanel({ onUpdate }: { onUpdate: () => void }) {
       <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
         <input
           type="password"
-          inputMode="numeric"
+          inputMode="text"
           placeholder="PIN admin"
           value={pin}
           onChange={e => setPin(e.target.value)}

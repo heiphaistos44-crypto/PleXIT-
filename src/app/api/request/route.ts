@@ -138,6 +138,39 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ message: "ID Discord invalide (doit être un nombre à 17-20 chiffres)" }, { status: 400 });
   }
 
+  // ── Validation de l'année (4 chiffres, plage 1888–année+5) ───
+  if (body.annee) {
+    const anneeStr = body.annee.trim();
+    if (!/^\d{4}$/.test(anneeStr)) {
+      return NextResponse.json({ message: "Année invalide (format attendu : AAAA)" }, { status: 400 });
+    }
+    const anneeNum = parseInt(anneeStr, 10);
+    if (anneeNum < 1888 || anneeNum > new Date().getFullYear() + 5) {
+      return NextResponse.json({ message: "Année hors limites" }, { status: 400 });
+    }
+  }
+
+  // ── Validation des genres (tableau, max 5, chaque genre max 50 chars) ──
+  if (body.genres !== undefined) {
+    if (!Array.isArray(body.genres)) {
+      return NextResponse.json({ message: "Genres invalides" }, { status: 400 });
+    }
+    if (body.genres.length > 5) {
+      return NextResponse.json({ message: "Maximum 5 genres autorisés" }, { status: 400 });
+    }
+    if (body.genres.some(g => typeof g !== "string" || g.trim().length === 0 || g.length > 50)) {
+      return NextResponse.json({ message: "Genre invalide (max 50 caractères par genre)" }, { status: 400 });
+    }
+  }
+
+  // ── Validation saisons / épisodes (longueur max) ──────────────
+  if ((body.saisons?.length ?? 0) > 100) {
+    return NextResponse.json({ message: "Saisons trop long (max 100 caractères)" }, { status: 400 });
+  }
+  if ((body.episodes?.length ?? 0) > 100) {
+    return NextResponse.json({ message: "Épisodes trop long (max 100 caractères)" }, { status: 400 });
+  }
+
   // Validation URL lien externe (domaines autorisés uniquement)
   const ALLOWED_LINK_DOMAINS = [
     "www.themoviedb.org", "themoviedb.org",
@@ -175,10 +208,11 @@ export async function POST(req: NextRequest) {
   }
 
   // ── Anti-spam & anti-doublon ────────────────────────────────
-  if (!body.force) {
+  {
     const allRequests = await readRequests();
 
     // Vérification anti-spam : max 3 demandes pending par pseudo
+    // ⚠️ TOUJOURS actif — même si force=true (le force ne bypass que l'anti-doublon)
     const pseudoLower = body.pseudoDiscord.trim().toLowerCase();
     const pendingCount = allRequests.filter(
       r => r.status === "pending" && r.pseudo.toLowerCase() === pseudoLower
@@ -191,25 +225,28 @@ export async function POST(req: NextRequest) {
     }
 
     // Vérification anti-doublon : titre normalisé dans demandes non-rejetées
-    const normalizedNew = normalizeTitle(body.titre.trim());
-    const existing = allRequests.find(
-      r => r.status !== "rejected" && normalizeTitle(r.titre) === normalizedNew
-    );
-    if (existing) {
-      return NextResponse.json(
-        {
-          message: "Une demande similaire existe déjà.",
-          code: "DUPLICATE",
-          existing: {
-            id:          existing.id,
-            titre:       existing.titre,
-            status:      existing.status,
-            pseudo:      existing.pseudo,
-            requestedAt: existing.requestedAt,
-          },
-        },
-        { status: 409 }
+    // ⚠️ Bypassable avec force=true uniquement (confirmation explicite de l'utilisateur)
+    if (!body.force) {
+      const normalizedNew = normalizeTitle(body.titre.trim());
+      const existing = allRequests.find(
+        r => r.status !== "rejected" && normalizeTitle(r.titre) === normalizedNew
       );
+      if (existing) {
+        return NextResponse.json(
+          {
+            message: "Une demande similaire existe déjà.",
+            code: "DUPLICATE",
+            existing: {
+              id:          existing.id,
+              titre:       existing.titre,
+              status:      existing.status,
+              pseudo:      existing.pseudo,
+              requestedAt: existing.requestedAt,
+            },
+          },
+          { status: 409 }
+        );
+      }
     }
   }
 

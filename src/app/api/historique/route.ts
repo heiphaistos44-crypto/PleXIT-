@@ -1,7 +1,8 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { readRequests, writeRequests } from "@/lib/db";
+import { cleanupMap } from "@/lib/security";
 
-// Normalise une chaîne pour la comparaison fuzzy (minuscules, sans accents, sans ponctuation)
+// Normalise une chaîne pour la comparaison fuzzy
 function normalize(s: string): string {
   return s
     .toLowerCase()
@@ -10,32 +11,50 @@ function normalize(s: string): string {
     .trim();
 }
 
-export async function GET() {
+// ─── Rate-limit : 30 req / 2 min / IP ────────────────────────
+const getRequestLimit = new Map<string, { count: number; resetAt: number }>();
+const GET_LIMIT_MAX = 30;
+const GET_LIMIT_WIN = 2 * 60 * 1000;
+
+export async function GET(req: NextRequest) {
+  // ── Rate-limit ────────────────────────────────────────────────
+  cleanupMap(getRequestLimit);
+  const ip  = req.headers.get("x-forwarded-for")?.split(",")[0].trim() ?? "unknown";
+  const now = Date.now();
+  const gl  = getRequestLimit.get(ip) ?? { count: 0, resetAt: now + GET_LIMIT_WIN };
+  if (now > gl.resetAt) { gl.count = 0; gl.resetAt = now + GET_LIMIT_WIN; }
+  gl.count++;
+  getRequestLimit.set(ip, gl);
+  if (gl.count > GET_LIMIT_MAX) {
+    return NextResponse.json({ message: "Trop de requêtes." }, { status: 429 });
+  }
+
   const requests = await readRequests();
 
   // ── Récupération de la bibliothèque Plex depuis le cache serveur ──
   const plexTitles: { title: string; addedAt: number }[] = [];
   try {
-    const plexBase = process.env.PLEX_URL?.replace(/\/$/, "");
+    const plexBase  = process.env.PLEX_URL?.replace(/\/$/, "");
     const plexToken = process.env.PLEX_TOKEN;
 
     if (plexBase && plexToken) {
-      // On lit directement les sections pour éviter de passer par l'API publique
+      // Token via header — jamais dans l'URL
+      const plexHeaders = { Accept: "application/json", "X-Plex-Token": plexToken };
+
       const sectionsRes = await fetch(
-        `${plexBase}/library/sections?X-Plex-Token=${plexToken}`,
-        { headers: { Accept: "application/json" }, signal: AbortSignal.timeout(5000), cache: "no-store" }
+        `${plexBase}/library/sections`,
+        { headers: plexHeaders, signal: AbortSignal.timeout(5000), cache: "no-store" }
       );
       if (sectionsRes.ok) {
         const sectionsData = await sectionsRes.json();
         const sections = sectionsData?.MediaContainer?.Directory ?? [];
 
-        // Récupère tous les titres en parallèle (limité aux 3 premières sections pour perf)
         await Promise.all(
           sections.slice(0, 6).map(async (sec: { key: string; type: string }) => {
             try {
               const res = await fetch(
-                `${plexBase}/library/sections/${sec.key}/all?X-Plex-Token=${plexToken}`,
-                { headers: { Accept: "application/json" }, signal: AbortSignal.timeout(8000), cache: "no-store" }
+                `${plexBase}/library/sections/${sec.key}/all`,
+                { headers: plexHeaders, signal: AbortSignal.timeout(8000), cache: "no-store" }
               );
               if (!res.ok) return;
               const data = await res.json();
@@ -50,15 +69,11 @@ export async function GET() {
     }
   } catch { /* Plex inaccessible — pas de cross-référence */ }
 
-  // ── Cross-référence : détecte si chaque demande est déjà sur Plex ──
+  // ── Cross-référence ───────────────────────────────────────────
   const enriched = requests.map(req => {
-    // Si déjà marqué manuellement, on conserve
     if (req.status === "added" || req.status === "rejected") return req;
-
-    // Sinon on cherche dans Plex
     const normTitle = normalize(req.titre);
     const match = plexTitles.find(p => normalize(p.title).includes(normTitle) || normTitle.includes(normalize(p.title)));
-
     if (match) {
       return {
         ...req,
@@ -72,9 +87,7 @@ export async function GET() {
     return req;
   });
 
-  // ── Persistance des auto-détections Plex ─────────────────────
-  // Si des demandes "pending" ont été détectées comme "added" dans Plex,
-  // on sauvegarde ce changement pour éviter l'incohérence entre API et fichier
+  // ── Persistance des auto-détections ──────────────────────────
   const autoAdded = enriched.filter((r, i) => r.status === "added" && requests[i].status !== "added");
   if (autoAdded.length > 0) {
     const updated = requests.map((_req, i) => enriched[i]);

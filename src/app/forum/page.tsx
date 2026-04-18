@@ -62,7 +62,7 @@ function ThumbCard({ item }: { item: PlexItem }) {
       }}>
         {item.thumb && !err
           // eslint-disable-next-line @next/next/no-img-element
-          ? <img src={`/api/plex/image?url=${encodeURIComponent(item.thumb)}`} alt={item.title} onError={() => setErr(true)}
+          ? <img src={item.thumb} alt={item.title} onError={() => setErr(true)}
               style={{ width: "100%", height: "100%", objectFit: "cover" }} />
           : <div style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "1.2rem" }}>
               {item.category === "music" ? "🎵" : "🎬"}
