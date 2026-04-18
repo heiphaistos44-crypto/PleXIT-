@@ -38,11 +38,11 @@ interface ReplyBody {
 }
 
 export async function POST(req: NextRequest) {
-  const adminPin   = process.env.ADMIN_PIN;
-  // Utilise le salon réponses dédié si configuré, sinon fallback sur le salon demandes
-  const webhookUrl = process.env.DISCORD_REPLY_WEBHOOK_URL ?? process.env.DISCORD_WEBHOOK_URL;
+  const adminPin    = process.env.ADMIN_PIN;
+  // DISCORD_WEBHOOK_URL est le fallback obligatoire (salon demandes)
+  const baseWebhook = process.env.DISCORD_WEBHOOK_URL;
 
-  if (!adminPin || !webhookUrl) {
+  if (!adminPin || !baseWebhook) {
     return NextResponse.json({ message: "Configuration serveur manquante" }, { status: 500 });
   }
 
@@ -151,6 +151,19 @@ export async function POST(req: NextRequest) {
     },
     timestamp: new Date().toISOString(),
   };
+
+  // ── Sélection du salon Discord selon le statut ───────────────
+  // Cascade de priorité : salon dédié → salon réponses → salon demandes (fallback)
+  const WEBHOOK_BY_STATUS: Partial<Record<string, string>> = {
+    added:     process.env.DISCORD_ADDED_WEBHOOK_URL,
+    rejected:  process.env.DISCORD_REJECTED_WEBHOOK_URL,
+    not_found: process.env.DISCORD_NOT_FOUND_WEBHOOK_URL,
+    // "pending" = remise en attente → pas de salon dédié, tombe sur réponses ou demandes
+  };
+  const webhookUrl =
+    WEBHOOK_BY_STATUS[body.status] ??
+    process.env.DISCORD_REPLY_WEBHOOK_URL ??
+    baseWebhook;
 
   // ── Mention Discord si userId fourni ──────────────────────────
   // Re-validation du format (defense-in-depth vs données corrompues dans requests.json)
