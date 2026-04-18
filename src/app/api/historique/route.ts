@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { readRequests, writeRequests } from "@/lib/db";
-import { cleanupMap } from "@/lib/security";
+import { cleanupMap, extractIp, retryAfterHeaders } from "@/lib/security";
 
 // Normalise une chaîne pour la comparaison fuzzy
 function normalize(s: string): string {
@@ -19,14 +19,17 @@ const GET_LIMIT_WIN = 2 * 60 * 1000;
 export async function GET(req: NextRequest) {
   // ── Rate-limit ────────────────────────────────────────────────
   cleanupMap(getRequestLimit);
-  const ip  = req.headers.get("x-forwarded-for")?.split(",")[0].trim() ?? "unknown";
+  const ip  = extractIp(req);
   const now = Date.now();
   const gl  = getRequestLimit.get(ip) ?? { count: 0, resetAt: now + GET_LIMIT_WIN };
   if (now > gl.resetAt) { gl.count = 0; gl.resetAt = now + GET_LIMIT_WIN; }
   gl.count++;
   getRequestLimit.set(ip, gl);
   if (gl.count > GET_LIMIT_MAX) {
-    return NextResponse.json({ message: "Trop de requêtes." }, { status: 429 });
+    return NextResponse.json(
+      { message: "Trop de requêtes." },
+      { status: 429, headers: retryAfterHeaders(gl.resetAt - now) }
+    );
   }
 
   const requests = await readRequests();

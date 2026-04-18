@@ -10,11 +10,10 @@ function plexHostname(): string {
 }
 
 const PLEX_HOST = plexHostname();
-
-const isProd = process.env.NODE_ENV === "production";
+const isProd    = process.env.NODE_ENV === "production";
 
 const nextConfig: NextConfig = {
-  // Désactive le header X-Powered-By (fingerprinting)
+  // Désactive le header X-Powered-By (fingerprinting serveur)
   poweredByHeader: false,
 
   images: {
@@ -24,6 +23,7 @@ const nextConfig: NextConfig = {
       { protocol: "https", hostname: PLEX_HOST, pathname: "/library/**" },
     ],
   },
+
   async headers() {
     return [
       // ── APIs : CORS restreint à la même origine ──────────────
@@ -37,33 +37,65 @@ const nextConfig: NextConfig = {
           { key: "Cache-Control",                value: "no-store" },
         ],
       },
-      // ── Pages : sécurité renforcée ────────────────────────────
+      // ── Pages & assets : sécurité renforcée ──────────────────
       {
         source: "/(.*)",
         headers: [
-          { key: "X-Frame-Options",           value: "DENY" },
-          { key: "X-Content-Type-Options",    value: "nosniff" },
-          { key: "Referrer-Policy",           value: "strict-origin-when-cross-origin" },
-          { key: "Permissions-Policy",        value: "camera=(), microphone=(), geolocation=(), payment=(), usb=()" },
+          // Clickjacking
+          { key: "X-Frame-Options",  value: "DENY" },
+          // MIME sniffing
+          { key: "X-Content-Type-Options", value: "nosniff" },
+          // Referer leak
+          { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
+          // Isolement fenêtre (prev cross-origin window access, Spectre mitigation)
+          { key: "Cross-Origin-Opener-Policy", value: "same-origin" },
+          // Protection des ressources cross-origin
+          { key: "Cross-Origin-Resource-Policy", value: "same-site" },
+          // Désactive les features inutiles (réduction surface d'attaque)
+          {
+            key:   "Permissions-Policy",
+            value: [
+              "camera=()",
+              "microphone=()",
+              "geolocation=()",
+              "payment=()",
+              "usb=()",
+              "screen-wake-lock=()",
+              "accelerometer=()",
+              "gyroscope=()",
+              "magnetometer=()",
+              "clipboard-read=()",
+              "interest-cohort=()",  // FLoC opt-out
+            ].join(", "),
+          },
           // HSTS — force HTTPS pour 1 an (production uniquement)
           ...(isProd ? [{
             key:   "Strict-Transport-Security",
             value: "max-age=31536000; includeSubDomains; preload",
           }] : []),
+          // Content Security Policy
           {
             key: "Content-Security-Policy",
             value: [
               "default-src 'self'",
-              // unsafe-eval retiré en prod (inutile pour Next.js 15 bundlé)
+              // unsafe-eval retiré en prod. unsafe-inline requis par Next.js pour les styles inline.
               `script-src 'self' 'unsafe-inline'${isProd ? "" : " 'unsafe-eval'"}`,
               "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
               "font-src 'self' https://fonts.gstatic.com",
+              // data: pour les SVG inline, blob: pour le service worker
               "img-src 'self' data: blob: https://cdn.jsdelivr.net",
+              // Connexions uniquement vers soi-même
               "connect-src 'self'",
+              // Service worker
               "worker-src 'self' blob:",
+              // Pas d'iframes
               "frame-ancestors 'none'",
+              // Pas d'injection de base URL
               "base-uri 'self'",
+              // Formulaires uniquement vers soi-même
               "form-action 'self'",
+              // Upgrade les requêtes HTTP en HTTPS en prod
+              ...(isProd ? ["upgrade-insecure-requests"] : []),
             ].join("; "),
           },
         ],

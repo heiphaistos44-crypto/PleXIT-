@@ -1,32 +1,40 @@
 import { NextRequest, NextResponse } from "next/server";
-import { pinEqual, cleanupMap } from "@/lib/security";
+import { pinEqual, cleanupMap, extractIp, isBodySizeOk, isJsonContentType, retryAfterHeaders } from "@/lib/security";
 
 // ─── Compteur de tentatives par IP ────────────────────────────
 const failedAttempts = new Map<string, { count: number; resetAt: number }>();
 const MAX_ATTEMPTS = 5;
-const LOCKOUT_MS   = 5 * 60 * 1000; // 5 minutes
+const LOCKOUT_MS   = 5 * 60 * 1000;
 
 export async function POST(req: NextRequest) {
   const adminPin = process.env.ADMIN_PIN;
 
   if (!adminPin) {
-    return NextResponse.json(
-      { message: "ADMIN_PIN non configuré dans .env.local" },
-      { status: 500 }
-    );
+    // ⚠️ Ne pas révéler le nom de la variable d'environnement dans le message d'erreur
+    return NextResponse.json({ message: "Configuration serveur manquante" }, { status: 500 });
+  }
+
+  // ── Vérification Content-Type ─────────────────────────────────
+  if (!isJsonContentType(req)) {
+    return NextResponse.json({ message: "Content-Type application/json requis" }, { status: 415 });
+  }
+
+  // ── Vérification taille du corps (max 1 Ko — juste un PIN) ───
+  if (!isBodySizeOk(req, 1_000)) {
+    return NextResponse.json({ message: "Requête trop grande" }, { status: 413 });
   }
 
   // Nettoyage périodique anti-memory-leak
   cleanupMap(failedAttempts);
 
   // ── Vérification lockout par IP ──────────────────────────────
-  const ip  = req.headers.get("x-forwarded-for")?.split(",")[0].trim() ?? "unknown";
+  const ip  = extractIp(req);
   const now = Date.now();
   const attempts = failedAttempts.get(ip);
   if (attempts && now < attempts.resetAt && attempts.count >= MAX_ATTEMPTS) {
     return NextResponse.json(
       { message: "Trop de tentatives. Réessaie dans 5 minutes." },
-      { status: 429 }
+      { status: 429, headers: retryAfterHeaders(attempts.resetAt - now) }
     );
   }
 

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { promises as fs } from "fs";
 import path from "path";
-import { cleanupMap } from "@/lib/security";
+import { cleanupMap, extractIp, isBodySizeOk, isJsonContentType, retryAfterHeaders } from "@/lib/security";
 
 const SUBS_PATH = path.join(process.cwd(), "data", "subscriptions.json");
 const MAX_SUBS_PER_PSEUDO = 10;
@@ -36,16 +36,29 @@ async function writeSubs(list: PushSub[]): Promise<void> {
 }
 
 export async function POST(req: NextRequest) {
+  // ── Content-Type ──────────────────────────────────────────────
+  if (!isJsonContentType(req)) {
+    return NextResponse.json({ message: "Content-Type application/json requis" }, { status: 415 });
+  }
+
+  // ── Taille du corps (max 10 Ko — subscription object est petit) ─
+  if (!isBodySizeOk(req, 10_000)) {
+    return NextResponse.json({ message: "Requête trop grande" }, { status: 413 });
+  }
+
   // ── Rate limiting ─────────────────────────────────────────────
   cleanupMap(ipRateLimit);
-  const ip  = req.headers.get("x-forwarded-for")?.split(",")[0].trim() ?? "unknown";
+  const ip  = extractIp(req);
   const now = Date.now();
   const rl  = ipRateLimit.get(ip) ?? { count: 0, resetAt: now + WINDOW_MS };
   if (now > rl.resetAt) { rl.count = 0; rl.resetAt = now + WINDOW_MS; }
   rl.count++;
   ipRateLimit.set(ip, rl);
   if (rl.count > MAX_REQS) {
-    return NextResponse.json({ message: "Trop de requêtes." }, { status: 429 });
+    return NextResponse.json(
+      { message: "Trop de requêtes." },
+      { status: 429, headers: retryAfterHeaders(rl.resetAt - now) }
+    );
   }
 
   let body: { pseudo?: string; subscription?: PushSubscriptionJSON };

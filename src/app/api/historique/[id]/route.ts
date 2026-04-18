@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { readRequests, writeRequests } from "@/lib/db";
-import { pinEqual, cleanupMap } from "@/lib/security";
+import { pinEqual, cleanupMap, extractIp, retryAfterHeaders } from "@/lib/security";
 
 // ─── Brute-force protection ───────────────────────────────────
 const failedAttempts = new Map<string, { count: number; resetAt: number }>();
@@ -22,13 +22,13 @@ export async function PATCH(
 
   // ── Brute-force lockout ───────────────────────────────────────
   cleanupMap(failedAttempts);
-  const ip  = req.headers.get("x-forwarded-for")?.split(",")[0].trim() ?? "unknown";
+  const ip  = extractIp(req);
   const now = Date.now();
   const attempts = failedAttempts.get(ip);
   if (attempts && now < attempts.resetAt && attempts.count >= MAX_ATTEMPTS) {
     return NextResponse.json(
       { message: "Trop de tentatives. Réessaie dans 5 minutes." },
-      { status: 429 }
+      { status: 429, headers: retryAfterHeaders(attempts.resetAt - now) }
     );
   }
 
@@ -89,13 +89,13 @@ export async function DELETE(
 
   // ── Brute-force lockout ───────────────────────────────────────
   cleanupMap(failedAttempts);
-  const ip  = _req.headers.get("x-forwarded-for")?.split(",")[0].trim() ?? "unknown";
+  const ip  = extractIp(_req);
   const now = Date.now();
   const attempts = failedAttempts.get(ip);
   if (attempts && now < attempts.resetAt && attempts.count >= MAX_ATTEMPTS) {
     return NextResponse.json(
       { message: "Trop de tentatives. Réessaie dans 5 minutes." },
-      { status: 429 }
+      { status: 429, headers: retryAfterHeaders(attempts.resetAt - now) }
     );
   }
 

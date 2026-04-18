@@ -1,14 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { promises as fs } from "fs";
 import path from "path";
-import { pinEqual, cleanupMap } from "@/lib/security";
+import { pinEqual, cleanupMap, extractIp, isBodySizeOk, isJsonContentType, retryAfterHeaders } from "@/lib/security";
 
 const STATUS_PATH = path.join(process.cwd(), "data", "status.json");
 
 interface SiteStatus {
   maintenance:  boolean;
-  message:      string;   // message affiché en maintenance
-  updatedAt:    string;   // ISO
+  message:      string;
+  updatedAt:    string;
 }
 
 const DEFAULT_STATUS: SiteStatus = {
@@ -19,8 +19,11 @@ const DEFAULT_STATUS: SiteStatus = {
 
 async function readStatus(): Promise<SiteStatus> {
   try {
-    const raw = await fs.readFile(STATUS_PATH, "utf-8");
-    return JSON.parse(raw) as SiteStatus;
+    const raw    = await fs.readFile(STATUS_PATH, "utf-8");
+    const parsed = JSON.parse(raw) as SiteStatus;
+    // Validation basique de structure
+    if (typeof parsed.maintenance !== "boolean") return { ...DEFAULT_STATUS };
+    return parsed;
   } catch {
     return { ...DEFAULT_STATUS };
   }
@@ -39,7 +42,6 @@ async function writeStatus(s: SiteStatus): Promise<void> {
 export async function GET() {
   const status = await readStatus();
 
-  // Teste la connectivité Plex
   const plexUrl   = process.env.PLEX_URL;
   const plexToken = process.env.PLEX_TOKEN;
   let plexOnline  = false;
@@ -48,7 +50,7 @@ export async function GET() {
   if (plexUrl && plexToken) {
     try {
       const t0  = Date.now();
-      // Token via header — jamais dans l'URL (moins de traces logs)
+      // Token via header — jamais dans l'URL
       const res = await fetch(`${plexUrl}/`, {
         headers: { "X-Plex-Token": plexToken },
         signal:  AbortSignal.timeout(4000),
@@ -75,7 +77,7 @@ export async function GET() {
   });
 }
 
-// ─── Brute-force protection (partagé entre instances)  ────────
+// ─── Brute-force protection ────────────────────────────────────
 const failedAttempts = new Map<string, { count: number; resetAt: number }>();
 const MAX_ATTEMPTS = 5;
 const LOCKOUT_MS   = 5 * 60 * 1000;
@@ -84,7 +86,17 @@ const LOCKOUT_MS   = 5 * 60 * 1000;
 export async function PATCH(req: NextRequest) {
   const adminPin = process.env.ADMIN_PIN;
   if (!adminPin) {
-    return NextResponse.json({ message: "ADMIN_PIN non configuré" }, { status: 500 });
+    return NextResponse.json({ message: "Configuration serveur manquante" }, { status: 500 });
+  }
+
+  // ── Vérification Content-Type ─────────────────────────────────
+  if (!isJsonContentType(req)) {
+    return NextResponse.json({ message: "Content-Type application/json requis" }, { status: 415 });
+  }
+
+  // ── Vérification taille du corps (max 5 Ko) ───────────────────
+  if (!isBodySizeOk(req, 5_000)) {
+    return NextResponse.json({ message: "Requête trop grande" }, { status: 413 });
   }
 
   let body: { pin?: string; maintenance?: boolean; message?: string };
@@ -98,17 +110,16 @@ export async function PATCH(req: NextRequest) {
   cleanupMap(failedAttempts);
 
   // ── Brute-force lockout ───────────────────────────────────────
-  const ip  = req.headers.get("x-forwarded-for")?.split(",")[0].trim() ?? "unknown";
+  const ip  = extractIp(req);
   const now = Date.now();
   const attempts = failedAttempts.get(ip);
   if (attempts && now < attempts.resetAt && attempts.count >= MAX_ATTEMPTS) {
     return NextResponse.json(
       { message: "Trop de tentatives. Réessaie dans 5 minutes." },
-      { status: 429 }
+      { status: 429, headers: retryAfterHeaders(attempts.resetAt - now) }
     );
   }
 
-  // Comparaison PIN en temps constant
   if (!body.pin || !pinEqual(body.pin, adminPin)) {
     const current = failedAttempts.get(ip) ?? { count: 0, resetAt: now + LOCKOUT_MS };
     failedAttempts.set(ip, {
@@ -120,6 +131,11 @@ export async function PATCH(req: NextRequest) {
   }
 
   failedAttempts.delete(ip);
+
+  // Validation du message de maintenance (longueur)
+  if (body.message && body.message.length > 500) {
+    return NextResponse.json({ message: "Message de maintenance trop long (max 500 caractères)" }, { status: 400 });
+  }
 
   const current = await readStatus();
   const updated: SiteStatus = {

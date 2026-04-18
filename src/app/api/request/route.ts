@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import crypto from "crypto";
 import { readRequests, writeRequests } from "@/lib/db";
 import type { StoredRequest } from "@/types";
-import { cleanupMap } from "@/lib/security";
+import { cleanupMap, extractIp, isBodySizeOk, isJsonContentType, sanitizeDiscord, retryAfterHeaders } from "@/lib/security";
 
 // Re-export pour compatibilité avec les anciens imports
 export type { StoredRequest };
@@ -29,11 +29,13 @@ interface RequestBody {
 
 // ─── Rate limiter par IP ───────────────────────────────────────
 const ipRateLimit = new Map<string, { count: number; resetAt: number }>();
+const RATE_WINDOW_MS = 10 * 60 * 1000; // 10 min
+const RATE_MAX       = 5;
 
 function normalizeTitle(s: string): string {
   return s.toLowerCase()
-    .normalize("NFD").replace(/[\u0300-\u036f]/g, "")  // enlève accents
-    .replace(/[^a-z0-9\s]/g, "")                         // enlève ponctuation
+    .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9\s]/g, "")
     .replace(/\s+/g, " ").trim();
 }
 
@@ -94,9 +96,19 @@ export async function POST(req: NextRequest) {
 
   if (!webhookUrl) {
     return NextResponse.json(
-      { message: "Webhook Discord non configuré (DISCORD_WEBHOOK_URL manquant dans .env.local)" },
+      { message: "Configuration serveur manquante" },
       { status: 500 }
     );
+  }
+
+  // ── Vérification Content-Type ─────────────────────────────────
+  if (!isJsonContentType(req)) {
+    return NextResponse.json({ message: "Content-Type application/json requis" }, { status: 415 });
+  }
+
+  // ── Vérification taille du corps (max 20 Ko) ─────────────────
+  if (!isBodySizeOk(req, 20_000)) {
+    return NextResponse.json({ message: "Requête trop grande (max 20 Ko)" }, { status: 413 });
   }
 
   let body: RequestBody;
@@ -150,7 +162,7 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // ── Validation des genres (tableau, max 5, chaque genre max 50 chars) ──
+  // ── Validation des genres ─────────────────────────────────────
   if (body.genres !== undefined) {
     if (!Array.isArray(body.genres)) {
       return NextResponse.json({ message: "Genres invalides" }, { status: 400 });
@@ -163,7 +175,7 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // ── Validation saisons / épisodes (longueur max) ──────────────
+  // ── Validation saisons / épisodes ────────────────────────────
   if ((body.saisons?.length ?? 0) > 100) {
     return NextResponse.json({ message: "Saisons trop long (max 100 caractères)" }, { status: 400 });
   }
@@ -195,37 +207,38 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // ── Rate limiter par IP : max 5 requêtes par 10 minutes ────
+  // ── Rate limiter par IP : max 5 requêtes par 10 minutes ───────
   cleanupMap(ipRateLimit);
-  const ip = req.headers.get("x-forwarded-for")?.split(",")[0].trim() ?? "unknown";
+  const ip  = extractIp(req);
   const now = Date.now();
-  const rl = ipRateLimit.get(ip) ?? { count: 0, resetAt: now + 10 * 60 * 1000 };
-  if (now > rl.resetAt) { rl.count = 0; rl.resetAt = now + 10 * 60 * 1000; }
+  const rl  = ipRateLimit.get(ip) ?? { count: 0, resetAt: now + RATE_WINDOW_MS };
+  if (now > rl.resetAt) { rl.count = 0; rl.resetAt = now + RATE_WINDOW_MS; }
   rl.count++;
   ipRateLimit.set(ip, rl);
-  if (rl.count > 5) {
-    return NextResponse.json({ message: "Trop de requêtes. Réessaie dans quelques minutes." }, { status: 429 });
+  if (rl.count > RATE_MAX) {
+    return NextResponse.json(
+      { message: "Trop de requêtes. Réessaie dans quelques minutes." },
+      { status: 429, headers: retryAfterHeaders(rl.resetAt - now) }
+    );
   }
 
   // ── Anti-spam & anti-doublon ────────────────────────────────
   {
     const allRequests = await readRequests();
 
-    // Vérification anti-spam : max 3 demandes pending par pseudo
-    // ⚠️ TOUJOURS actif — même si force=true (le force ne bypass que l'anti-doublon)
-    const pseudoLower = body.pseudoDiscord.trim().toLowerCase();
+    // Anti-spam : max 3 demandes pending par pseudo (TOUJOURS actif, force ne bypass pas ça)
+    const pseudoLower  = body.pseudoDiscord.trim().toLowerCase();
     const pendingCount = allRequests.filter(
       r => r.status === "pending" && r.pseudo.toLowerCase() === pseudoLower
     ).length;
     if (pendingCount >= 3) {
       return NextResponse.json(
         { message: "Tu as déjà 3 demandes en attente. Attends qu'elles soient traitées avant d'en ajouter une nouvelle.", code: "SPAM_LIMIT" },
-        { status: 429 }
+        { status: 429, headers: { "Retry-After": "600" } }
       );
     }
 
-    // Vérification anti-doublon : titre normalisé dans demandes non-rejetées
-    // ⚠️ Bypassable avec force=true uniquement (confirmation explicite de l'utilisateur)
+    // Anti-doublon : titre normalisé (bypassable avec force=true — confirmation explicite)
     if (!body.force) {
       const normalizedNew = normalizeTitle(body.titre.trim());
       const existing = allRequests.find(
@@ -255,15 +268,17 @@ export async function POST(req: NextRequest) {
   const isSeries  = ["serie", "anime", "dessin_anime"].includes(body.type);
   const hasQuality = body.type !== "musique";
 
-  // ── Génère l'ID immédiatement (utilisé dans le footer Discord) ──
   const requestId = crypto.randomUUID();
   const shortId   = requestId.split("-")[0].toUpperCase();
 
-  // ── Champs inline pour l'embed ────────────────────────────────
+  // ── Sanitisation Discord (anti @everyone/@here injection) ────
+  const safeTitre      = sanitizeDiscord(body.titre.trim());
+  const safePseudo     = sanitizeDiscord(body.pseudoDiscord.trim());
+  const safeCommentaire = body.commentaire ? sanitizeDiscord(body.commentaire.substring(0, 300)) : undefined;
+
   type EmbedField = { name: string; value: string; inline?: boolean };
   const fields: EmbedField[] = [];
 
-  // Ligne 1 : Année | Langue | Qualité (3 colonnes inline)
   if (hasQuality) {
     const langLabel = LANGUE_LABELS[body.langue  || ""] || body.langue  || "Non précisée";
     const qualLabel = QUALITE_LABELS[body.qualite || ""] || body.qualite || "Non précisée";
@@ -271,62 +286,54 @@ export async function POST(req: NextRequest) {
     fields.push({ name: "🌐 Langue",   value: langLabel,           inline: true });
     fields.push({ name: "🎞️ Qualité",  value: qualLabel,           inline: true });
   } else {
-    // Musique : année seule
     if (body.annee) fields.push({ name: "📅 Année", value: body.annee, inline: true });
   }
 
-  // Genres (pleine largeur)
   if (body.genres && body.genres.length) {
     fields.push({ name: "🎭 Genres", value: body.genres.join(", "), inline: false });
   }
 
-  // Saisons / épisodes / diffusion (séries uniquement)
   if (isSeries) {
-    if (body.saisons)  fields.push({ name: "🗂️ Saisons",   value: body.saisons,                    inline: true });
-    if (body.episodes) fields.push({ name: "📝 Épisodes",  value: body.episodes,                    inline: true });
-    if (body.enCours)  fields.push({ name: "📡 Diffusion", value: "En cours",                       inline: true });
+    if (body.saisons)  fields.push({ name: "🗂️ Saisons",   value: body.saisons,  inline: true });
+    if (body.episodes) fields.push({ name: "📝 Épisodes",  value: body.episodes, inline: true });
+    if (body.enCours)  fields.push({ name: "📡 Diffusion", value: "En cours",    inline: true });
   }
 
-  // Vérifié sur Plex
   fields.push({
-    name:   "✅ Sur Plex",
-    value:  body.verifieExistant ? "Vérifié — non dispo" : "Non vérifié",
+    name:  "✅ Sur Plex",
+    value: body.verifieExistant ? "Vérifié — non dispo" : "Non vérifié",
     inline: true,
   });
 
-  // Lien externe
   if (body.lienType && body.lienUrl) {
     const src = LIEN_LABELS[body.lienType] || body.lienType;
     fields.push({ name: "🔗 Référence", value: `[Voir sur ${src}](${body.lienUrl})`, inline: true });
   }
 
-  // Commentaire (pleine largeur, en dernier)
-  if (body.commentaire) {
-    fields.push({ name: "💬 Commentaire", value: `*${body.commentaire.substring(0, 300)}*`, inline: false });
+  if (safeCommentaire) {
+    fields.push({ name: "💬 Commentaire", value: `*${safeCommentaire}*`, inline: false });
   }
 
-  // ── Embed Discord ──────────────────────────────────────────────
   const prioriteLabel = priorite.charAt(0).toUpperCase() + priorite.slice(1);
 
-  // Miniature type-spécifique (emoji rendu en URL Twemoji)
   const TYPE_THUMBS: Record<string, string> = {
-    film:         "https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/1f3ac.png", // 🎬
-    serie:        "https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/1f4fa.png", // 📺
-    anime:        "https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/26e9.png",  // ⛩️
-    dessin_anime: "https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/1f3a8.png", // 🎨
-    musique:      "https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/1f3b5.png", // 🎵
+    film:         "https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/1f3ac.png",
+    serie:        "https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/1f4fa.png",
+    anime:        "https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/26e9.png",
+    dessin_anime: "https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/1f3a8.png",
+    musique:      "https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/1f3b5.png",
   };
 
   const embed = {
     author: {
       name: `${typeLabel} · Priorité ${prioriteLabel} ${PRIORITE_EMOJIS[priorite]}`,
     },
-    title: `${body.titre}${body.annee ? ` (${body.annee})` : ""}`,
+    title: `${safeTitre}${body.annee ? ` (${body.annee})` : ""}`,
     color: TYPE_COLORS[body.type] ?? PRIORITE_COLORS[priorite],
     thumbnail: { url: TYPE_THUMBS[body.type] ?? TYPE_THUMBS.film },
     fields,
     footer: {
-      text: `Demandé par ${body.pseudoDiscord} · PleXIT · Réf. #${shortId}`,
+      text: `Demandé par ${safePseudo} · PleXIT · Réf. #${shortId}`,
     },
     timestamp: new Date().toISOString(),
   };
@@ -337,9 +344,11 @@ export async function POST(req: NextRequest) {
       headers: { "Content-Type": "application/json" },
       signal:  AbortSignal.timeout(5000),
       body:    JSON.stringify({
-        content: `📬 **${body.pseudoDiscord}** demande : **${body.titre}** ${PRIORITE_EMOJIS[priorite]}`,
-        embeds: [embed],
+        content: `📬 **${safePseudo}** demande : **${safeTitre}** ${PRIORITE_EMOJIS[priorite]}`,
+        embeds:  [embed],
         username: "PleXIT",
+        // ⛔ Désactive TOUS les pings @mention dans le webhook (défense en profondeur)
+        allowed_mentions: { parse: [] },
       }),
     });
 
@@ -362,18 +371,17 @@ export async function POST(req: NextRequest) {
       pseudo:         body.pseudoDiscord.trim(),
       discordUserId:  body.discordUserId?.trim() || undefined,
       lienType:       body.lienType || undefined,
-      lienUrl:     body.lienUrl || undefined,
-      commentaire: body.commentaire || undefined,
-      priorite:    priorite,
-      requestedAt: new Date().toISOString(),
-      status:      "pending",
+      lienUrl:        body.lienUrl || undefined,
+      commentaire:    body.commentaire || undefined,
+      priorite:       priorite,
+      requestedAt:    new Date().toISOString(),
+      status:         "pending",
     };
     try {
       const list = await readRequests();
-      list.unshift(stored); // plus récent en premier
+      list.unshift(stored);
       await writeRequests(list);
     } catch (saveErr) {
-      // Ne pas bloquer la réponse si la sauvegarde échoue
       console.error("Historique save error:", saveErr);
     }
 

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { readRequests } from "@/lib/db";
 import type { StoredRequest } from "@/lib/db";
-import { pinEqual, cleanupMap } from "@/lib/security";
+import { pinEqual, cleanupMap, extractIp, isBodySizeOk, isJsonContentType, sanitizeDiscord, retryAfterHeaders } from "@/lib/security";
 
 // ─── Brute-force protection ────────────────────────────────────
 const failedAttempts = new Map<string, { count: number; resetAt: number }>();
@@ -16,6 +16,16 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ message: "Configuration serveur manquante" }, { status: 500 });
   }
 
+  // ── Vérification Content-Type ─────────────────────────────────
+  if (!isJsonContentType(req)) {
+    return NextResponse.json({ message: "Content-Type application/json requis" }, { status: 415 });
+  }
+
+  // ── Vérification taille du corps (max 2 Ko — juste un PIN) ───
+  if (!isBodySizeOk(req, 2_000)) {
+    return NextResponse.json({ message: "Requête trop grande" }, { status: 413 });
+  }
+
   let body: { pin?: string };
   try {
     body = await req.json().catch(() => ({})) as { pin?: string };
@@ -27,13 +37,13 @@ export async function POST(req: NextRequest) {
   cleanupMap(failedAttempts);
 
   // ── Vérification lockout par IP ──────────────────────────────
-  const ip  = req.headers.get("x-forwarded-for")?.split(",")[0].trim() ?? "unknown";
+  const ip  = extractIp(req);
   const now = Date.now();
   const attempts = failedAttempts.get(ip);
   if (attempts && now < attempts.resetAt && attempts.count >= MAX_ATTEMPTS) {
     return NextResponse.json(
       { message: "Trop de tentatives. Réessaie dans 5 minutes." },
-      { status: 429 }
+      { status: 429, headers: retryAfterHeaders(attempts.resetAt - now) }
     );
   }
 
@@ -64,8 +74,13 @@ export async function POST(req: NextRequest) {
     const basse   = pending.filter(r => r.priorite === "basse");
 
     // Discord field value limit = 1024 chars — tronqué si nécessaire
+    // Sanitise chaque titre/pseudo pour éviter les injections Discord
     const fmt = (list: StoredRequest[]) => {
-      const lines = list.map(r => `• **${r.titre}**${r.annee ? ` (${r.annee})` : ""} — *${r.pseudo}*`);
+      const lines = list.map(r => {
+        const safeTitre  = sanitizeDiscord(r.titre);
+        const safePseudo = sanitizeDiscord(r.pseudo);
+        return `• **${safeTitre}**${r.annee ? ` (${r.annee})` : ""} — *${safePseudo}*`;
+      });
       let result = "";
       for (const line of lines) {
         if ((result + "\n" + line).length > 950) { result += "\n*… et plus*"; break; }
@@ -93,7 +108,11 @@ export async function POST(req: NextRequest) {
       method:  "POST",
       headers: { "Content-Type": "application/json" },
       signal:  AbortSignal.timeout(5000),
-      body:    JSON.stringify({ embeds: [embed], username: "PleXIT" }),
+      body:    JSON.stringify({
+        embeds:           [embed],
+        username:         "PleXIT",
+        allowed_mentions: { parse: [] }, // ⛔ Pas de pings @everyone/@here
+      }),
     });
 
     if (!discordRes.ok) throw new Error(`Discord ${discordRes.status}`);
@@ -101,7 +120,6 @@ export async function POST(req: NextRequest) {
 
   } catch (err) {
     console.error("Remind error:", err);
-    // Ne pas exposer les détails d'erreur interne au client
     return NextResponse.json({ message: "Erreur lors de l'envoi du rappel" }, { status: 500 });
   }
 }

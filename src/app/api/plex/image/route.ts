@@ -1,9 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 
-// Cache mémoire côté serveur pour éviter de re-fetcher les mêmes images
+// ─── Cache mémoire images ────────────────────────────────────
+// Limite : max 500 entrées ET max 80 Mo total (LRU sur taille totale)
 const imageCache = new Map<string, { buffer: ArrayBuffer; contentType: string; ts: number }>();
-const IMAGE_CACHE_TTL  = 24 * 60 * 60 * 1000; // 24h
-const MAX_IMAGE_SIZE   = 10 * 1024 * 1024;     // 10 Mo max
+let   imageCacheTotalBytes = 0;
+const IMAGE_CACHE_TTL     = 24 * 60 * 60 * 1000; // 24h
+const MAX_IMAGE_SIZE      = 10 * 1024 * 1024;     // 10 Mo par image
+const MAX_CACHE_TOTAL     = 80 * 1024 * 1024;     // 80 Mo total max
 
 // Types MIME image autorisés (whitelist stricte)
 const ALLOWED_MIME_PREFIXES = ["image/jpeg", "image/png", "image/webp", "image/gif", "image/avif"];
@@ -48,13 +51,19 @@ export async function GET(req: NextRequest) {
     fetchHeaders = { Accept: "image/*" };
   }
 
-  // ── Cache hit ─────────────────────────────────────────────────
+  // ── Cache hit — invalide les entrées expirées ─────────────────
   const cached = imageCache.get(fetchUrl);
-  if (cached && Date.now() - cached.ts < IMAGE_CACHE_TTL) {
-    return new NextResponse(cached.buffer, {
+  if (cached && Date.now() - cached.ts >= IMAGE_CACHE_TTL) {
+    // Entrée expirée : on la retire et on refetch
+    imageCacheTotalBytes -= cached.buffer.byteLength;
+    imageCache.delete(fetchUrl);
+  }
+  const validCached = imageCache.get(fetchUrl);
+  if (validCached) {
+    return new NextResponse(validCached.buffer, {
       status: 200,
       headers: {
-        "Content-Type":  cached.contentType,
+        "Content-Type":  validCached.contentType,
         "Cache-Control": "public, max-age=86400, immutable",
         "X-Cache":       "HIT",
       },
@@ -92,11 +101,18 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "Image trop grande (max 10 Mo)" }, { status: 413 });
     }
 
-    // ── LRU : évict le plus ancien si > 500 entrées ──────────
-    if (imageCache.size >= 500) {
+    // ── LRU : évict jusqu'à libérer assez de mémoire ─────────
+    // Critère double : taille totale (80 Mo) ET nombre d'entrées (500 max)
+    while (
+      imageCache.size > 0 &&
+      (imageCacheTotalBytes + buffer.byteLength > MAX_CACHE_TOTAL || imageCache.size >= 500)
+    ) {
       const oldest = [...imageCache.entries()].sort((a, b) => a[1].ts - b[1].ts)[0];
-      if (oldest) imageCache.delete(oldest[0]);
+      if (!oldest) break;
+      imageCacheTotalBytes -= oldest[1].buffer.byteLength;
+      imageCache.delete(oldest[0]);
     }
+    imageCacheTotalBytes += buffer.byteLength;
     imageCache.set(fetchUrl, { buffer, contentType: contentType || "image/jpeg", ts: Date.now() });
 
     return new NextResponse(buffer, {

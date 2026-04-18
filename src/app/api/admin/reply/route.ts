@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { readRequests, writeRequests } from "@/lib/db";
 import { sendPushToPseudo } from "@/lib/sendPush";
-import { pinEqual, cleanupMap } from "@/lib/security";
+import { pinEqual, cleanupMap, extractIp, isBodySizeOk, isJsonContentType, sanitizeDiscord, retryAfterHeaders } from "@/lib/security";
 
 // ─── Compteur de tentatives par IP ────────────────────────────
 const failedAttempts = new Map<string, { count: number; resetAt: number }>();
 const MAX_ATTEMPTS = 5;
-const LOCKOUT_MS   = 5 * 60 * 1000; // 5 minutes
+const LOCKOUT_MS   = 5 * 60 * 1000;
 
 const STATUS_LABELS: Record<string, string> = {
   added:     "✅ Ajouté à Plex",
@@ -38,14 +38,21 @@ interface ReplyBody {
 }
 
 export async function POST(req: NextRequest) {
-  const adminPin    = process.env.ADMIN_PIN;
-  const webhookUrl  = process.env.DISCORD_WEBHOOK_URL;
+  const adminPin   = process.env.ADMIN_PIN;
+  const webhookUrl = process.env.DISCORD_WEBHOOK_URL;
 
   if (!adminPin || !webhookUrl) {
-    return NextResponse.json(
-      { message: "Configuration manquante (ADMIN_PIN ou DISCORD_WEBHOOK_URL)" },
-      { status: 500 }
-    );
+    return NextResponse.json({ message: "Configuration serveur manquante" }, { status: 500 });
+  }
+
+  // ── Vérification Content-Type ─────────────────────────────────
+  if (!isJsonContentType(req)) {
+    return NextResponse.json({ message: "Content-Type application/json requis" }, { status: 415 });
+  }
+
+  // ── Vérification taille du corps (max 10 Ko) ──────────────────
+  if (!isBodySizeOk(req, 10_000)) {
+    return NextResponse.json({ message: "Requête trop grande" }, { status: 413 });
   }
 
   let body: ReplyBody;
@@ -59,13 +66,13 @@ export async function POST(req: NextRequest) {
   cleanupMap(failedAttempts);
 
   // ── Vérification lockout par IP ──────────────────────────────
-  const ip  = req.headers.get("x-forwarded-for")?.split(",")[0].trim() ?? "unknown";
+  const ip  = extractIp(req);
   const now = Date.now();
   const attempts = failedAttempts.get(ip);
   if (attempts && now < attempts.resetAt && attempts.count >= MAX_ATTEMPTS) {
     return NextResponse.json(
       { message: "Trop de tentatives. Réessaie dans 5 minutes." },
-      { status: 429 }
+      { status: 429, headers: retryAfterHeaders(attempts.resetAt - now) }
     );
   }
 
@@ -87,7 +94,15 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ message: "requestId manquant" }, { status: 400 });
   }
 
-  // Lecture + mise à jour du fichier JSON
+  const VALID_STATUSES = ["added", "rejected", "pending", "not_found"] as const;
+  if (!VALID_STATUSES.includes(body.status)) {
+    return NextResponse.json({ message: "Statut invalide" }, { status: 400 });
+  }
+
+  if ((body.note?.length ?? 0) > 500) {
+    return NextResponse.json({ message: "Note trop longue (max 500 caractères)" }, { status: 400 });
+  }
+
   const list = await readRequests();
   const idx  = list.findIndex((r) => r.id === body.requestId);
 
@@ -107,18 +122,21 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ message: "Erreur de sauvegarde" }, { status: 500 });
   }
 
-  // Envoi de la réponse Discord
-  const shortId    = request.id.split("-")[0].toUpperCase();
+  // ── Sanitisation Discord ──────────────────────────────────────
+  const shortId     = request.id.split("-")[0].toUpperCase();
   const statusLabel = STATUS_LABELS[body.status] ?? body.status;
   const typeLabel   = TYPE_LABELS[request.type]  ?? request.type;
+  const safeTitre   = sanitizeDiscord(request.titre);
+  const safePseudo  = sanitizeDiscord(request.pseudo);
+  const safeNote    = body.note?.trim() ? sanitizeDiscord(body.note.trim()) : undefined;
 
   const descLines: string[] = [
     `**Statut mis à jour :** ${statusLabel}`,
-    `**Titre :** ${request.titre}${request.annee ? ` (${request.annee})` : ""}`,
+    `**Titre :** ${safeTitre}${request.annee ? ` (${request.annee})` : ""}`,
     `**Type :** ${typeLabel}`,
   ];
-  if (body.note?.trim()) {
-    descLines.push(`\n📝 *${body.note.trim()}*`);
+  if (safeNote) {
+    descLines.push(`\n📝 *${safeNote}*`);
   }
 
   const embed = {
@@ -126,14 +144,15 @@ export async function POST(req: NextRequest) {
     description: descLines.join("\n"),
     color:       STATUS_COLORS[body.status] ?? 0x6b7280,
     footer: {
-      text: `PleXIT Admin · Réf. #${shortId} · Demande de ${request.pseudo}`,
+      text: `PleXIT Admin · Réf. #${shortId} · Demande de ${safePseudo}`,
     },
     timestamp: new Date().toISOString(),
   };
 
-  // ── Mention Discord si userId fourni ──────────────────────
-  const discordMention = request.discordUserId ? `<@${request.discordUserId}>` : `**${request.pseudo}**`;
-  const discordContent = `🔔 ${discordMention} — ta demande **${request.titre}** → ${statusLabel}`;
+  // ── Mention Discord si userId fourni ──────────────────────────
+  // La mention <@ID> n'utilise pas @ libre, mais on bloque quand même avec allowed_mentions
+  const discordMention = request.discordUserId ? `<@${request.discordUserId}>` : `**${safePseudo}**`;
+  const discordContent = `🔔 ${discordMention} — ta demande **${safeTitre}** → ${statusLabel}`;
 
   let discordError = false;
   try {
@@ -142,9 +161,11 @@ export async function POST(req: NextRequest) {
       headers: { "Content-Type": "application/json" },
       signal:  AbortSignal.timeout(5000),
       body:    JSON.stringify({
-        content:  discordContent,
-        embeds:   [embed],
-        username: "PleXIT Admin",
+        content:          discordContent,
+        embeds:           [embed],
+        username:         "PleXIT Admin",
+        // ⛔ Seules les mentions @user explicites (<@ID>) sont autorisées, pas @everyone/@here
+        allowed_mentions: { parse: ["users"] },
       }),
     });
     if (!discordRes.ok) {
@@ -156,12 +177,12 @@ export async function POST(req: NextRequest) {
     discordError = true;
   }
 
-  // ── Notification push PWA ─────────────────────────────────
+  // ── Notification push PWA ─────────────────────────────────────
   const pushMessages: Record<string, { title: string; body: string }> = {
-    added:     { title: "✅ Ajouté à Plex !",      body: `"${request.titre}" est maintenant disponible.`          },
-    rejected:  { title: "❌ Demande non retenue",   body: `"${request.titre}" n'a pas pu être ajouté.`             },
-    pending:   { title: "🕐 Remis en attente",     body: `"${request.titre}" est de nouveau en attente.`           },
-    not_found: { title: "🔍 Introuvable pour l'instant", body: `"${request.titre}" n'a pas été trouvé pour le moment.` },
+    added:     { title: "✅ Ajouté à Plex !",               body: `"${request.titre}" est maintenant disponible.`          },
+    rejected:  { title: "❌ Demande non retenue",            body: `"${request.titre}" n'a pas pu être ajouté.`             },
+    pending:   { title: "🕐 Remis en attente",              body: `"${request.titre}" est de nouveau en attente.`           },
+    not_found: { title: "🔍 Introuvable pour l'instant",    body: `"${request.titre}" n'a pas été trouvé pour le moment.`   },
   };
   const pushMsg = pushMessages[body.status];
   if (pushMsg) {
@@ -169,7 +190,7 @@ export async function POST(req: NextRequest) {
       ...pushMsg,
       url: `/historique`,
       tag: `plexit-${request.id}`,
-    }).catch(console.error); // fire & forget
+    }).catch(console.error);
   }
 
   return NextResponse.json({
