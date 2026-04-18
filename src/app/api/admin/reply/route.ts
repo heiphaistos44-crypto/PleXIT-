@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { readRequests, writeRequests } from "@/lib/db";
 import { sendPushToPseudo } from "@/lib/sendPush";
+import { pinEqual, cleanupMap } from "@/lib/security";
 
 // ─── Compteur de tentatives par IP ────────────────────────────
 const failedAttempts = new Map<string, { count: number; resetAt: number }>();
@@ -54,6 +55,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ message: "Corps invalide" }, { status: 400 });
   }
 
+  // Nettoyage périodique anti-memory-leak
+  cleanupMap(failedAttempts);
+
   // ── Vérification lockout par IP ──────────────────────────────
   const ip  = req.headers.get("x-forwarded-for")?.split(",")[0].trim() ?? "unknown";
   const now = Date.now();
@@ -65,8 +69,8 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  // Vérification PIN
-  if (!body.pin || body.pin.trim() !== adminPin.trim()) {
+  // Vérification PIN en temps constant (anti timing-attack)
+  if (!body.pin || !pinEqual(body.pin, adminPin)) {
     const current = failedAttempts.get(ip) ?? { count: 0, resetAt: now + LOCKOUT_MS };
     failedAttempts.set(ip, {
       count:   current.count + 1,

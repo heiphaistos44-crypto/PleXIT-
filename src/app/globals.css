@@ -213,7 +213,57 @@ select.input-plexit option  { background: #1a1a1a; color: #f9fafb; }
 /* ── Step indicator (formulaire) ── */
 .step-indicator { display: flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: 50%; background: rgba(220,38,38,.15); border: 1px solid rgba(220,38,38,.4); color: #ef4444; font-size: .75rem; font-weight: 700; flex-shrink: 0; }
 
+/* ── Focus visible (accessibilité clavier) ── */
+:focus-visible {
+  outline: 2px solid rgba(220,38,38,0.7);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+/* ── Scrollbar améliorée ── */
+::-webkit-scrollbar       { width: 4px; height: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(220,38,38,0.4); border-radius: 4px; transition: background .2s; }
+::-webkit-scrollbar-thumb:hover { background: rgba(220,38,38,0.7); }
+
+/* ── Transitions globales ── */
+button, a, input, select, textarea {
+  transition-duration: 0.15s;
+  transition-timing-function: ease;
+}
+
+/* ── Amélioration btn-ghost ── */
+.btn-ghost:active { transform: scale(0.98); }
+.btn-ghost:focus-visible { outline-color: rgba(255,255,255,0.5); }
+
+/* ── Amélioration btn-primary ── */
+.btn-primary:focus-visible { outline-color: #ef4444; outline-offset: 3px; }
+
+/* ── Card glow variants ── */
+.card-green  { border-color: rgba(34,197,94,0.2) !important;  box-shadow: 0 0 20px rgba(34,197,94,0.05); }
+.card-red    { border-color: rgba(239,68,68,0.2) !important;   box-shadow: 0 0 20px rgba(239,68,68,0.05); }
+.card-blue   { border-color: rgba(59,130,246,0.2) !important;  box-shadow: 0 0 20px rgba(59,130,246,0.05); }
+.card-gold   { border-color: rgba(245,158,11,0.2) !important;  box-shadow: 0 0 20px rgba(245,158,11,0.05); }
+
+/* ── Dot live ── */
+@keyframes blink { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
+.dot-live { width: 7px; height: 7px; border-radius: 50%; background: #22c55e; display: inline-block; animation: blink 2s ease infinite; box-shadow: 0 0 6px #22c55e; }
+.dot-offline { width: 7px; height: 7px; border-radius: 50%; background: #4b5563; display: inline-block; }
+
+/* ── Footer links ── */
+.footer-link {
+  font-size: 0.75rem;
+  color: #374151;
+  text-decoration: none;
+  transition: color 0.15s;
+}
+.footer-link:hover { color: #9ca3af; }
+
 /* ── Responsive ── */
 @media (max-width: 768px) {
   .btn-primary { padding: 12px 20px; font-size: .9rem; }
+  .nav-label   { display: none; }
+}
+@media (max-width: 640px) {
+  .hide-mobile { display: none !important; }
 }

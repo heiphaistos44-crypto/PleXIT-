@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import crypto from "crypto";
 import { readRequests, writeRequests } from "@/lib/db";
 import type { StoredRequest } from "@/types";
+import { cleanupMap } from "@/lib/security";
 
 // Re-export pour compatibilité avec les anciens imports
 export type { StoredRequest };
@@ -137,11 +138,32 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ message: "ID Discord invalide (doit être un nombre à 17-20 chiffres)" }, { status: 400 });
   }
 
-  if (body.lienUrl && !body.lienUrl.startsWith("https://")) {
-    return NextResponse.json({ message: "L'URL du lien doit commencer par https://" }, { status: 400 });
+  // Validation URL lien externe (domaines autorisés uniquement)
+  const ALLOWED_LINK_DOMAINS = [
+    "www.themoviedb.org", "themoviedb.org",
+    "www.imdb.com",       "imdb.com",
+    "www.allocine.fr",    "allocine.fr",
+    "www.youtube.com",    "youtube.com", "youtu.be",
+  ];
+  if (body.lienUrl) {
+    if (!body.lienUrl.startsWith("https://")) {
+      return NextResponse.json({ message: "L'URL du lien doit commencer par https://" }, { status: 400 });
+    }
+    try {
+      const linkDomain = new URL(body.lienUrl).hostname.replace(/^www\./, "");
+      if (!ALLOWED_LINK_DOMAINS.some(d => d.replace(/^www\./, "") === linkDomain)) {
+        return NextResponse.json(
+          { message: "Domaine non autorisé. Utilisez TMDB, IMDb, Allociné ou YouTube." },
+          { status: 400 }
+        );
+      }
+    } catch {
+      return NextResponse.json({ message: "URL du lien invalide" }, { status: 400 });
+    }
   }
 
   // ── Rate limiter par IP : max 5 requêtes par 10 minutes ────
+  cleanupMap(ipRateLimit);
   const ip = req.headers.get("x-forwarded-for")?.split(",")[0].trim() ?? "unknown";
   const now = Date.now();
   const rl = ipRateLimit.get(ip) ?? { count: 0, resetAt: now + 10 * 60 * 1000 };

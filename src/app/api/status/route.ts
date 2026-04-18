@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { promises as fs } from "fs";
 import path from "path";
+import { pinEqual, cleanupMap } from "@/lib/security";
 
 const STATUS_PATH = path.join(process.cwd(), "data", "status.json");
 
@@ -68,6 +69,11 @@ export async function GET() {
   });
 }
 
+// ─── Brute-force protection (partagé entre instances)  ────────
+const failedAttempts = new Map<string, { count: number; resetAt: number }>();
+const MAX_ATTEMPTS = 5;
+const LOCKOUT_MS   = 5 * 60 * 1000;
+
 // ── PATCH : toggle maintenance (admin PIN requis) ─────────────
 export async function PATCH(req: NextRequest) {
   const adminPin = process.env.ADMIN_PIN;
@@ -82,10 +88,32 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({ message: "Corps invalide" }, { status: 400 });
   }
 
-  if (!body.pin || body.pin.trim() !== adminPin.trim()) {
-    await new Promise((r) => setTimeout(r, 200));
+  // Nettoyage périodique anti-memory-leak
+  cleanupMap(failedAttempts);
+
+  // ── Brute-force lockout ───────────────────────────────────────
+  const ip  = req.headers.get("x-forwarded-for")?.split(",")[0].trim() ?? "unknown";
+  const now = Date.now();
+  const attempts = failedAttempts.get(ip);
+  if (attempts && now < attempts.resetAt && attempts.count >= MAX_ATTEMPTS) {
+    return NextResponse.json(
+      { message: "Trop de tentatives. Réessaie dans 5 minutes." },
+      { status: 429 }
+    );
+  }
+
+  // Comparaison PIN en temps constant
+  if (!body.pin || !pinEqual(body.pin, adminPin)) {
+    const current = failedAttempts.get(ip) ?? { count: 0, resetAt: now + LOCKOUT_MS };
+    failedAttempts.set(ip, {
+      count:   current.count + 1,
+      resetAt: now < current.resetAt ? current.resetAt : now + LOCKOUT_MS,
+    });
+    await new Promise((r) => setTimeout(r, 500));
     return NextResponse.json({ message: "PIN incorrect" }, { status: 401 });
   }
+
+  failedAttempts.delete(ip);
 
   const current = await readStatus();
   const updated: SiteStatus = {

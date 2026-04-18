@@ -74,6 +74,10 @@ function mapItem(
   token:   string,
 ): MappedItem {
   const category = detectCategory(section.type, section.title);
+  // ⚠️ Le token ne doit JAMAIS sortir dans la réponse JSON — on proxy via /api/plex/image
+  const thumbProxy = item.thumb
+    ? `/api/plex/image?url=${encodeURIComponent(`${plexUrl}${item.thumb}?X-Plex-Token=${token}`)}`
+    : undefined;
   return {
     id:           item.ratingKey,
     title:        item.title,
@@ -81,7 +85,7 @@ function mapItem(
     type:         section.type === "artist" ? "show" : (item.type === "movie" ? "movie" : "show"),
     category,
     sectionTitle: section.title,
-    thumb:        item.thumb ? `${plexUrl}${item.thumb}?X-Plex-Token=${token}` : undefined,
+    thumb:        thumbProxy,
     rating:       item.rating ? parseFloat(item.rating.toFixed(1)) : undefined,
     summary:      item.summary,
     duration:     item.duration,

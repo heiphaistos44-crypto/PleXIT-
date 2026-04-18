@@ -11,7 +11,12 @@ function plexHostname(): string {
 
 const PLEX_HOST = plexHostname();
 
+const isProd = process.env.NODE_ENV === "production";
+
 const nextConfig: NextConfig = {
+  // Désactive le header X-Powered-By (fingerprinting)
+  poweredByHeader: false,
+
   images: {
     remotePatterns: [
       { protocol: "http",  hostname: PLEX_HOST, port: "32400", pathname: "/library/**" },
@@ -29,26 +34,36 @@ const nextConfig: NextConfig = {
           { key: "Access-Control-Allow-Methods", value: "GET, POST, PATCH, DELETE, OPTIONS" },
           { key: "Access-Control-Allow-Headers", value: "Content-Type, x-admin-pin" },
           { key: "X-Content-Type-Options",       value: "nosniff" },
+          { key: "Cache-Control",                value: "no-store" },
         ],
       },
-      // ── Pages : sécurité complète ────────────────────────────
+      // ── Pages : sécurité renforcée ────────────────────────────
       {
         source: "/(.*)",
         headers: [
           { key: "X-Frame-Options",           value: "DENY" },
           { key: "X-Content-Type-Options",    value: "nosniff" },
           { key: "Referrer-Policy",           value: "strict-origin-when-cross-origin" },
-          { key: "Permissions-Policy",        value: "camera=(), microphone=(), geolocation=()" },
+          { key: "Permissions-Policy",        value: "camera=(), microphone=(), geolocation=(), payment=(), usb=()" },
+          // HSTS — force HTTPS pour 1 an (production uniquement)
+          ...(isProd ? [{
+            key:   "Strict-Transport-Security",
+            value: "max-age=31536000; includeSubDomains; preload",
+          }] : []),
           {
             key: "Content-Security-Policy",
             value: [
               "default-src 'self'",
-              "script-src 'self' 'unsafe-inline' 'unsafe-eval'",   // unsafe-inline requis pour Next.js inline scripts
+              // unsafe-eval retiré en prod (inutile pour Next.js 15 bundlé)
+              `script-src 'self' 'unsafe-inline'${isProd ? "" : " 'unsafe-eval'"}`,
               "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
               "font-src 'self' https://fonts.gstatic.com",
               "img-src 'self' data: blob: https://cdn.jsdelivr.net",
               "connect-src 'self'",
+              "worker-src 'self' blob:",
               "frame-ancestors 'none'",
+              "base-uri 'self'",
+              "form-action 'self'",
             ].join("; "),
           },
         ],

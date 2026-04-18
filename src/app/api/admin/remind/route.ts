@@ -1,17 +1,57 @@
 import { NextRequest, NextResponse } from "next/server";
 import { readRequests } from "@/lib/db";
 import type { StoredRequest } from "@/lib/db";
+import { pinEqual, cleanupMap } from "@/lib/security";
+
+// ─── Brute-force protection ────────────────────────────────────
+const failedAttempts = new Map<string, { count: number; resetAt: number }>();
+const MAX_ATTEMPTS = 5;
+const LOCKOUT_MS   = 5 * 60 * 1000;
 
 export async function POST(req: NextRequest) {
+  const adminPin   = process.env.ADMIN_PIN;
+  const webhookUrl = process.env.DISCORD_WEBHOOK_URL;
+
+  if (!adminPin || !webhookUrl) {
+    return NextResponse.json({ message: "Configuration serveur manquante" }, { status: 500 });
+  }
+
+  let body: { pin?: string };
   try {
-    const body = await req.json().catch(() => ({})) as { pin?: string };
-    if (!body.pin || body.pin !== process.env.ADMIN_PIN) {
-      return NextResponse.json({ message: "PIN invalide" }, { status: 401 });
-    }
+    body = await req.json().catch(() => ({})) as { pin?: string };
+  } catch {
+    return NextResponse.json({ message: "Corps invalide" }, { status: 400 });
+  }
 
-    const webhookUrl = process.env.DISCORD_WEBHOOK_URL;
-    if (!webhookUrl) return NextResponse.json({ message: "Webhook non configuré" }, { status: 500 });
+  // Nettoyage périodique anti-memory-leak
+  cleanupMap(failedAttempts);
 
+  // ── Vérification lockout par IP ──────────────────────────────
+  const ip  = req.headers.get("x-forwarded-for")?.split(",")[0].trim() ?? "unknown";
+  const now = Date.now();
+  const attempts = failedAttempts.get(ip);
+  if (attempts && now < attempts.resetAt && attempts.count >= MAX_ATTEMPTS) {
+    return NextResponse.json(
+      { message: "Trop de tentatives. Réessaie dans 5 minutes." },
+      { status: 429 }
+    );
+  }
+
+  // Vérification PIN en temps constant
+  if (!body.pin || !pinEqual(body.pin, adminPin)) {
+    const current = failedAttempts.get(ip) ?? { count: 0, resetAt: now + LOCKOUT_MS };
+    failedAttempts.set(ip, {
+      count:   current.count + 1,
+      resetAt: now < current.resetAt ? current.resetAt : now + LOCKOUT_MS,
+    });
+    await new Promise((r) => setTimeout(r, 500));
+    return NextResponse.json({ message: "PIN incorrect" }, { status: 401 });
+  }
+
+  // PIN correct — réinitialise le compteur
+  failedAttempts.delete(ip);
+
+  try {
     const requests: StoredRequest[] = await readRequests();
     const pending = requests.filter(r => r.status === "pending");
 
@@ -23,7 +63,7 @@ export async function POST(req: NextRequest) {
     const moyenne = pending.filter(r => r.priorite === "moyenne");
     const basse   = pending.filter(r => r.priorite === "basse");
 
-    // Discord field value limit = 1024 chars — on tronque si nécessaire
+    // Discord field value limit = 1024 chars — tronqué si nécessaire
     const fmt = (list: StoredRequest[]) => {
       const lines = list.map(r => `• **${r.titre}**${r.annee ? ` (${r.annee})` : ""} — *${r.pseudo}*`);
       let result = "";
@@ -41,11 +81,11 @@ export async function POST(req: NextRequest) {
     ];
 
     const embed = {
-      title: `📋 ${pending.length} demande${pending.length > 1 ? "s" : ""} en attente de traitement`,
+      title:       `📋 ${pending.length} demande${pending.length > 1 ? "s" : ""} en attente de traitement`,
       description: "Voici le récapitulatif des demandes qui n'ont pas encore été traitées.",
-      color: 0xf59e0b,
+      color:       0xf59e0b,
       fields,
-      footer: { text: "PleXIT · Rappel manuel" },
+      footer:    { text: "PleXIT · Rappel manuel" },
       timestamp: new Date().toISOString(),
     };
 
@@ -58,7 +98,10 @@ export async function POST(req: NextRequest) {
 
     if (!discordRes.ok) throw new Error(`Discord ${discordRes.status}`);
     return NextResponse.json({ success: true, count: pending.length });
+
   } catch (err) {
-    return NextResponse.json({ message: String(err) }, { status: 500 });
+    console.error("Remind error:", err);
+    // Ne pas exposer les détails d'erreur interne au client
+    return NextResponse.json({ message: "Erreur lors de l'envoi du rappel" }, { status: 500 });
   }
 }

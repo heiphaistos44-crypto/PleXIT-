@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { readRequests, writeRequests } from "@/lib/db";
+import { pinEqual } from "@/lib/security";
 
 // PATCH /api/historique/[id] — met à jour le statut d'une demande (admin uniquement)
 export async function PATCH(
@@ -14,8 +15,8 @@ export async function PATCH(
   const { id } = await params;
   const body = await req.json() as { status?: "pending" | "added" | "rejected" | "not_found"; note?: string; pin?: string };
 
-  // Vérification PIN obligatoire
-  if (!body.pin || body.pin.trim() !== adminPin.trim()) {
+  // Vérification PIN en temps constant
+  if (!body.pin || !pinEqual(body.pin, adminPin)) {
     await new Promise(r => setTimeout(r, 500));
     return NextResponse.json({ message: "PIN incorrect" }, { status: 401 });
   }
@@ -54,7 +55,7 @@ export async function DELETE(
 
   // Vérification PIN depuis les headers (DELETE n'a pas de body par convention REST)
   const pin = _req.headers.get("x-admin-pin") ?? "";
-  if (!pin || pin.trim() !== adminPin.trim()) {
+  if (!pin || !pinEqual(pin, adminPin)) {
     await new Promise(r => setTimeout(r, 500));
     return NextResponse.json({ message: "PIN incorrect" }, { status: 401 });
   }

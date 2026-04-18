@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { pinEqual, cleanupMap } from "@/lib/security";
 
 // ─── Compteur de tentatives par IP ────────────────────────────
 const failedAttempts = new Map<string, { count: number; resetAt: number }>();
@@ -14,6 +15,9 @@ export async function POST(req: NextRequest) {
       { status: 500 }
     );
   }
+
+  // Nettoyage périodique anti-memory-leak
+  cleanupMap(failedAttempts);
 
   // ── Vérification lockout par IP ──────────────────────────────
   const ip  = req.headers.get("x-forwarded-for")?.split(",")[0].trim() ?? "unknown";
@@ -33,14 +37,13 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ message: "Corps invalide" }, { status: 400 });
   }
 
-  if (!body.pin || body.pin.trim() !== adminPin.trim()) {
-    // Incrémente le compteur
+  // Comparaison en temps constant (anti timing-attack)
+  if (!body.pin || !pinEqual(body.pin, adminPin)) {
     const current = failedAttempts.get(ip) ?? { count: 0, resetAt: now + LOCKOUT_MS };
     failedAttempts.set(ip, {
       count:   current.count + 1,
       resetAt: now < current.resetAt ? current.resetAt : now + LOCKOUT_MS,
     });
-    // Délai anti-brute-force
     await new Promise((r) => setTimeout(r, 500));
     return NextResponse.json({ message: "PIN incorrect" }, { status: 401 });
   }

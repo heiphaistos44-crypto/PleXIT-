@@ -50,15 +50,36 @@ export default function RootLayout({
         <main style={{ flex: 1, position: "relative", zIndex: 10 }}>{children}</main>
         <footer style={{
           borderTop: "1px solid rgba(255,255,255,0.05)",
-          padding: "20px", textAlign: "center",
-          fontSize: "0.78rem", color: "#6b7280",
+          padding: "28px 24px 20px",
           position: "relative", zIndex: 10,
         }}>
-          <span style={{ color: "#9ca3af" }}>PleXIT</span>
-          <span style={{ margin: "0 8px", color: "#374151" }}>•</span>
-          <span style={{ color: "#6b7280" }}>Plateforme privée — Accès réservé aux membres Discord</span>
-          <span style={{ margin: "0 8px", color: "#374151" }}>•</span>
-          <span style={{ color: "#4b5563" }}>{new Date().getFullYear()}</span>
+          <div style={{ maxWidth: 1280, margin: "0 auto" }}>
+            {/* Liens rapides */}
+            <div style={{
+              display: "flex", justifyContent: "center", gap: 24,
+              flexWrap: "wrap", marginBottom: 16,
+            }}>
+              {[
+                { href: "/demande",      label: "Demande" },
+                { href: "/bibliotheque", label: "Bibliothèque" },
+                { href: "/historique",   label: "Historique" },
+                { href: "/nouveautes",   label: "Nouveautés" },
+                { href: "/status",       label: "Statut" },
+              ].map(({ href, label }) => (
+                <a key={href} href={href} className="footer-link">
+                  {label}
+                </a>
+              ))}
+            </div>
+            {/* Copyright */}
+            <div style={{ textAlign: "center", fontSize: "0.72rem", color: "#374151" }}>
+              <span style={{ color: "#4b5563", fontWeight: 700, fontStyle: "italic" }}>PleXIT</span>
+              <span style={{ margin: "0 8px" }}>·</span>
+              <span>Plateforme privée — Accès réservé aux membres Discord</span>
+              <span style={{ margin: "0 8px" }}>·</span>
+              <span>{new Date().getFullYear()}</span>
+            </div>
+          </div>
         </footer>
       </body>
     </html>
