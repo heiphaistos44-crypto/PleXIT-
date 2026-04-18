@@ -158,7 +158,7 @@ export async function POST(req: NextRequest) {
     added:     process.env.DISCORD_ADDED_WEBHOOK_URL,
     rejected:  process.env.DISCORD_REJECTED_WEBHOOK_URL,
     not_found: process.env.DISCORD_NOT_FOUND_WEBHOOK_URL,
-    // "pending" = remise en attente → pas de salon dédié, tombe sur réponses ou demandes
+    pending:   process.env.DISCORD_PENDING_WEBHOOK_URL,
   };
   const webhookUrl =
     WEBHOOK_BY_STATUS[body.status] ??
